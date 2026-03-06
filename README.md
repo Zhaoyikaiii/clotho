@@ -14,8 +14,6 @@
     <a href="https://github.com/Zhaoyikaiii/clotho"><img src="https://img.shields.io/badge/GitHub-Repository-black?style=flat&logo=github&logoColor=white" alt="GitHub"></a>
   </p>
 
-[English](./README.md) | [中文](./README.zh.md)
-
 </div>
 
 ---

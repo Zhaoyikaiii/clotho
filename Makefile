@@ -51,7 +51,7 @@ install:
 	fi
 	@lefthook install -f lefthook.yml
 	@echo "Building $(BINARY_NAME)..."
-	@go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) ./$(CMD_DIR)
+	@go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./$(CMD_DIR)
 	@mkdir -p $(INSTALL_BIN_DIR)
 	@cp $(BUILD_DIR)/$(BINARY_NAME) $(INSTALL_BIN_DIR)/$(BINARY_NAME)
 	@echo "Installed to $(INSTALL_BIN_DIR)/$(BINARY_NAME)"
