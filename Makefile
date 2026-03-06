@@ -1,4 +1,4 @@
-.PHONY: all install clean help
+.PHONY: all install clean lint help
 
 # Build variables
 BINARY_NAME=clotho
@@ -62,6 +62,17 @@ build:
 	@mkdir -p $(BUILD_DIR)
 	@go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./$(CMD_DIR)
 	@echo "Built: $(BUILD_DIR)/$(BINARY_NAME)"
+
+## lint: Run linter (installs golangci-lint if needed)
+lint:
+	@if ! command -v golangci-lint &> /dev/null; then \
+		echo "Installing golangci-lint..."; \
+		go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.10.1; \
+	fi
+	@echo "Running go generate..."
+	@go generate ./...
+	@echo "Running golangci-lint..."
+	@golangci-lint run --timeout 5m
 
 ## clean: Remove build artifacts
 clean:
