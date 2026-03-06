@@ -65,9 +65,10 @@ build:
 
 ## lint: Run linter (installs golangci-lint if needed)
 lint:
-	@if ! command -v golangci-lint &> /dev/null; then \
+	@GOBIN=$$(go env GOPATH)/bin; \
+	if ! command -v golangci-lint &> /dev/null && [ ! -f "$$GOBIN/golangci-lint" ]; then \
 		echo "Installing golangci-lint..."; \
-		go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.10.1; \
+		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$$GOBIN"; \
 	fi
 	@echo "Running go generate..."
 	@go generate ./...
