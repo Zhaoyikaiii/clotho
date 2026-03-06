@@ -1,0 +1,44 @@
+services:
+  # ─────────────────────────────────────────────
+  # Claw Agent (one-shot query) - Full MCP Support
+  #   docker compose -f docker/docker-compose.full.yml run --rm clotho-agent -m "Hello"
+  # ─────────────────────────────────────────────
+  clotho-agent:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.full
+    container_name: clotho-agent-full
+    profiles:
+      - agent
+    volumes:
+      - ../config/config.json:/root/.clotho/config.json:ro
+      - clotho-workspace:/root/.clotho/workspace
+      - clotho-npm-cache:/root/.npm # npm cache for faster MCP server installs
+    entrypoint: ["clotho", "agent"]
+    stdin_open: true
+    tty: true
+
+  # ─────────────────────────────────────────────
+  # Claw Gateway (Long-running Bot) - Full MCP Support
+  #   docker compose -f docker/docker-compose.full.yml --profile gateway up
+  # ─────────────────────────────────────────────
+  clotho-gateway:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.full
+    container_name: clotho-gateway-full
+    restart: unless-stopped
+    profiles:
+      - gateway
+    volumes:
+      # Configuration file
+      - ../config/config.json:/root/.clotho/config.json:ro
+      # Persistent workspace (sessions, memory, logs)
+      - clotho-workspace:/root/.clotho/workspace
+      # NPM cache for faster MCP server installs
+      - clotho-npm-cache:/root/.npm
+    command: ["gateway"]
+
+volumes:
+  clotho-workspace:
+  clotho-npm-cache: # Cache npm packages to speed up MCP server installations

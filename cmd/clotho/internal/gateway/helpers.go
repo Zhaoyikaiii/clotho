@@ -1,0 +1,257 @@
+// Copyright (c) 2026 Clotho contributors
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package gateway
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"time"
+
+	"github.com/Zhaoyikaiii/clotho/cmd/clotho/internal"
+	"github.com/Zhaoyikaiii/clotho/pkg/agent"
+	"github.com/Zhaoyikaiii/clotho/pkg/bus"
+	"github.com/Zhaoyikaiii/clotho/pkg/channels"
+	_ "github.com/Zhaoyikaiii/clotho/pkg/channels/dingtalk"
+	_ "github.com/Zhaoyikaiii/clotho/pkg/channels/discord"
+	_ "github.com/Zhaoyikaiii/clotho/pkg/channels/feishu"
+	_ "github.com/Zhaoyikaiii/clotho/pkg/channels/line"
+	_ "github.com/Zhaoyikaiii/clotho/pkg/channels/onebot"
+	_ "github.com/Zhaoyikaiii/clotho/pkg/channels/qq"
+	_ "github.com/Zhaoyikaiii/clotho/pkg/channels/slack"
+	_ "github.com/Zhaoyikaiii/clotho/pkg/channels/telegram"
+	_ "github.com/Zhaoyikaiii/clotho/pkg/channels/wecom"
+	_ "github.com/Zhaoyikaiii/clotho/pkg/channels/whatsapp"
+	_ "github.com/Zhaoyikaiii/clotho/pkg/channels/whatsapp_native"
+	"github.com/Zhaoyikaiii/clotho/pkg/config"
+	"github.com/Zhaoyikaiii/clotho/pkg/cron"
+	"github.com/Zhaoyikaiii/clotho/pkg/health"
+	"github.com/Zhaoyikaiii/clotho/pkg/heartbeat"
+	"github.com/Zhaoyikaiii/clotho/pkg/logger"
+	"github.com/Zhaoyikaiii/clotho/pkg/media"
+	"github.com/Zhaoyikaiii/clotho/pkg/providers"
+	"github.com/Zhaoyikaiii/clotho/pkg/tools"
+	"github.com/Zhaoyikaiii/clotho/pkg/voice"
+)
+
+func gatewayCmd(debug bool) error {
+	if debug {
+		logger.SetLevel(logger.DEBUG)
+		fmt.Println("🔍 Debug mode enabled")
+	}
+
+	cfg, err := internal.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("error loading config: %w", err)
+	}
+
+	provider, modelID, err := providers.CreateProvider(cfg)
+	if err != nil {
+		return fmt.Errorf("error creating provider: %w", err)
+	}
+
+	// Use the resolved model ID from provider creation
+	if modelID != "" {
+		cfg.Agents.Defaults.ModelName = modelID
+	}
+
+	msgBus := bus.NewMessageBus()
+	agentLoop := agent.NewAgentLoop(cfg, msgBus, provider)
+
+	// Print agent startup info
+	fmt.Println("\n📦 Agent Status:")
+	startupInfo := agentLoop.GetStartupInfo()
+	toolsInfo := startupInfo["tools"].(map[string]any)
+	skillsInfo := startupInfo["skills"].(map[string]any)
+	fmt.Printf("  • Tools: %d loaded\n", toolsInfo["count"])
+	fmt.Printf("  • Skills: %d/%d available\n",
+		skillsInfo["available"],
+		skillsInfo["total"])
+
+	// Log to file as well
+	logger.InfoCF("agent", "Agent initialized",
+		map[string]any{
+			"tools_count":      toolsInfo["count"],
+			"skills_total":     skillsInfo["total"],
+			"skills_available": skillsInfo["available"],
+		})
+
+	// Setup cron tool and service
+	execTimeout := time.Duration(cfg.Tools.Cron.ExecTimeoutMinutes) * time.Minute
+	cronService := setupCronTool(
+		agentLoop,
+		msgBus,
+		cfg.WorkspacePath(),
+		cfg.Agents.Defaults.RestrictToWorkspace,
+		execTimeout,
+		cfg,
+	)
+
+	heartbeatService := heartbeat.NewHeartbeatService(
+		cfg.WorkspacePath(),
+		cfg.Heartbeat.Interval,
+		cfg.Heartbeat.Enabled,
+	)
+	heartbeatService.SetBus(msgBus)
+	heartbeatService.SetHandler(func(prompt, channel, chatID string) *tools.ToolResult {
+		// Use cli:direct as fallback if no valid channel
+		if channel == "" || chatID == "" {
+			channel, chatID = "cli", "direct"
+		}
+		// Use ProcessHeartbeat - no session history, each heartbeat is independent
+		var response string
+		response, err = agentLoop.ProcessHeartbeat(context.Background(), prompt, channel, chatID)
+		if err != nil {
+			return tools.ErrorResult(fmt.Sprintf("Heartbeat error: %v", err))
+		}
+		if response == "HEARTBEAT_OK" {
+			return tools.SilentResult("Heartbeat OK")
+		}
+		// For heartbeat, always return silent - the subagent result will be
+		// sent to user via processSystemMessage when the async task completes
+		return tools.SilentResult(response)
+	})
+
+	// Create media store for file lifecycle management with TTL cleanup
+	mediaStore := media.NewFileMediaStoreWithCleanup(media.MediaCleanerConfig{
+		Enabled:  cfg.Tools.MediaCleanup.Enabled,
+		MaxAge:   time.Duration(cfg.Tools.MediaCleanup.MaxAge) * time.Minute,
+		Interval: time.Duration(cfg.Tools.MediaCleanup.Interval) * time.Minute,
+	})
+	mediaStore.Start()
+
+	channelManager, err := channels.NewManager(cfg, msgBus, mediaStore)
+	if err != nil {
+		mediaStore.Stop()
+		return fmt.Errorf("error creating channel manager: %w", err)
+	}
+
+	// Inject channel manager and media store into agent loop
+	agentLoop.SetChannelManager(channelManager)
+	agentLoop.SetMediaStore(mediaStore)
+
+	// Wire up voice transcription if a supported provider is configured.
+	if transcriber := voice.DetectTranscriber(cfg); transcriber != nil {
+		agentLoop.SetTranscriber(transcriber)
+		logger.InfoCF("voice", "Transcription enabled (agent-level)", map[string]any{"provider": transcriber.Name()})
+	}
+
+	enabledChannels := channelManager.GetEnabledChannels()
+	if len(enabledChannels) > 0 {
+		fmt.Printf("✓ Channels enabled: %s\n", enabledChannels)
+	} else {
+		fmt.Println("⚠ Warning: No channels enabled")
+	}
+
+	fmt.Printf("✓ Gateway started on %s:%d\n", cfg.Gateway.Host, cfg.Gateway.Port)
+	fmt.Println("Press Ctrl+C to stop")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := cronService.Start(); err != nil {
+		fmt.Printf("Error starting cron service: %v\n", err)
+	}
+	fmt.Println("✓ Cron service started")
+
+	if err := heartbeatService.Start(); err != nil {
+		fmt.Printf("Error starting heartbeat service: %v\n", err)
+	}
+	fmt.Println("✓ Heartbeat service started")
+
+	// Setup shared HTTP server with health endpoints and webhook handlers
+	healthServer := health.NewServer(cfg.Gateway.Host, cfg.Gateway.Port)
+	addr := fmt.Sprintf("%s:%d", cfg.Gateway.Host, cfg.Gateway.Port)
+	channelManager.SetupHTTPServer(addr, healthServer)
+
+	if err := channelManager.StartAll(ctx); err != nil {
+		fmt.Printf("Error starting channels: %v\n", err)
+		return err
+	}
+
+	fmt.Printf("✓ Health endpoints available at http://%s:%d/health and /ready\n", cfg.Gateway.Host, cfg.Gateway.Port)
+
+	go agentLoop.Run(ctx)
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
+	<-sigChan
+
+	fmt.Println("\nShutting down...")
+	if cp, ok := provider.(providers.StatefulProvider); ok {
+		cp.Close()
+	}
+	cancel()
+	msgBus.Close()
+
+	// Use a fresh context with timeout for graceful shutdown,
+	// since the original ctx is already canceled.
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer shutdownCancel()
+
+	channelManager.StopAll(shutdownCtx)
+	heartbeatService.Stop()
+	cronService.Stop()
+	mediaStore.Stop()
+	agentLoop.Stop()
+	fmt.Println("✓ Gateway stopped")
+
+	return nil
+}
+
+func setupCronTool(
+	agentLoop *agent.AgentLoop,
+	msgBus *bus.MessageBus,
+	workspace string,
+	restrict bool,
+	execTimeout time.Duration,
+	cfg *config.Config,
+) *cron.CronService {
+	cronStorePath := filepath.Join(workspace, "cron", "jobs.json")
+
+	// Create cron service
+	cronService := cron.NewCronService(cronStorePath, nil)
+
+	// Create and register CronTool if enabled
+	var cronTool *tools.CronTool
+	if cfg.Tools.IsToolEnabled("cron") {
+		var err error
+		cronTool, err = tools.NewCronTool(cronService, agentLoop, msgBus, workspace, restrict, execTimeout, cfg)
+		if err != nil {
+			log.Fatalf("Critical error during CronTool initialization: %v", err)
+		}
+
+		agentLoop.RegisterTool(cronTool)
+	}
+
+	// Set onJob handler
+	if cronTool != nil {
+		cronService.SetOnJob(func(job *cron.CronJob) (string, error) {
+			result := cronTool.ExecuteJob(context.Background(), job)
+			return result, nil
+		})
+	}
+
+	return cronService
+}

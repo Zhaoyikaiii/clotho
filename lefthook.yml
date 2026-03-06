@@ -1,0 +1,129 @@
+# Lefthook configuration for Clotho
+# Install: lefthook install
+# Run manually: lefthook run pre-commit
+
+# Commit message validation (run on commit-msg)
+commit-msg:
+  commands:
+    # Validate conventional commit message format
+    conventional-commit:
+      run: |
+        COMMIT_MSG_FILE=$1
+        COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
+
+        # Conventional commit pattern: type(scope): description
+        # Types: feat, fix, docs, style, refactor, test, chore, perf, ci, build, revert
+        # Examples:
+        #   feat: add new workflow engine
+        #   fix(auth): resolve OAuth token refresh issue
+        #   docs: update README
+        #   refactor(provider): simplify factory pattern
+        #   test: add unit tests for agent loop
+        #   chore: update dependencies
+        #   perf(memory): optimize JSONL storage
+
+        PATTERN="^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\([a-zA-Z0-9_-]+\))?: .{1,}"
+
+        if ! echo "$COMMIT_MSG" | grep -qE "$PATTERN"; then
+          echo "❌ Invalid commit message format."
+          echo ""
+          echo "Expected format: <type>(<scope>): <description>"
+          echo ""
+          echo "Valid types:"
+          echo "  feat     - New feature"
+          echo "  fix      - Bug fix"
+          echo "  docs     - Documentation"
+          echo "  style     - Code style (formatting)"
+          echo "  refactor - Code refactoring"
+          echo "  test     - Tests"
+          echo "  chore    - Maintenance"
+          echo "  perf     - Performance"
+          echo "  ci       - CI/CD"
+          echo "  build    - Build"
+          echo "  revert   - Revert"
+          echo ""
+          echo "Examples:"
+          echo "  feat: add workflow engine"
+          echo "  fix(auth): resolve token refresh"
+          echo "  docs: update README"
+          echo ""
+          exit 1
+        fi
+        echo "✓ Commit message follows conventional format"
+
+# Pre-commit hooks (run before git commit)
+pre-commit:
+  parallel: true
+  commands:
+    # Format code
+    gofmt:
+      run: gofmt -l -w -s {staged_files}
+      tags: lint
+
+    # Import formatting
+    goimports:
+      run: goimports -l -w -s {staged_files}
+      tags: lint
+
+    # Quick lint check on staged Go files
+    golangci-lint:
+      run: |
+        STAGED_GO_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' | grep -v '_test\.go$' | head -10)
+        if [ -n "$STAGED_GO_FILES" ]; then
+          golangci-lint run --new-from-rev HEAD~1 $STAGED_GO_FILES 2>/dev/null || true
+        fi
+      tags: lint
+
+    # Generate files consistency check
+    generate:
+      run: |
+        go generate ./...
+        git diff --cached --exit-code || (echo "❌ Run 'go generate ./...' and re-commit" && exit 1)
+      tags: generate
+
+    # Secret scan (basic)
+    secret-scan:
+      run: |
+        SCAN_FILES=$(git diff --cached --name-only)
+        echo "$SCAN_FILES" | xargs grep -l "AKIA\|sk-\|ghp_\|gho_\|github_pat_" 2>/dev/null || true
+      tags: security
+
+# Pre-push hooks (run before git push)
+pre-push:
+  parallel: true
+  commands:
+    # Full unit tests
+    test:
+      run: go test -race -short -timeout 5m ./...
+      tags: test
+
+    # Critical packages with race detector
+    test-race:
+      run: |
+        go test -race -timeout 2m ./pkg/agent/... ./pkg/config/... ./pkg/channels/... ./cmd/...
+      tags: test
+
+    # Dependency vulnerability scan
+    vuln-scan:
+      run: govulncheck ./... || true
+      tags: security
+
+    # License check (basic)
+    license-check:
+      run: |
+        MISSING_LICENSE=$(find . -name "*.go" -not -path "./vendor/*" -exec grep -L "^// Copyright" {} \; 2>/dev/null | head -5)
+        if [ -n "$MISSING_LICENSE" ]; then
+          echo "❌ Missing license header in:"
+          echo "$MISSING_LICENSE"
+          exit 1
+        fi
+      tags: license
+
+# Post-merge hooks (run after git pull/merge)
+post-merge:
+  parallel: true
+  commands:
+    # Ensure dependencies are up to date
+    deps:
+      run: go mod tidy && go mod verify
+      tags: deps

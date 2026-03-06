@@ -1,0 +1,34 @@
+services:
+  # ─────────────────────────────────────────────
+  # Claw Agent (one-shot query)
+  #   docker compose -f docker/docker-compose.yml run --rm clotho-agent -m "Hello"
+  # ─────────────────────────────────────────────
+  clotho-agent:
+    image: docker.io/sipeed/clotho:latest
+    container_name: clotho-agent
+    profiles:
+      - agent
+    # Uncomment to access host network; leave commented unless needed.
+    #extra_hosts:
+    #  - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data:/root/.clotho
+    entrypoint: ["clotho", "agent"]
+    stdin_open: true
+    tty: true
+
+  # ─────────────────────────────────────────────
+  # Claw Gateway (Long-running Bot)
+  #   docker compose -f docker/docker-compose.yml up clotho-gateway
+  # ─────────────────────────────────────────────
+  clotho-gateway:
+    image: docker.io/sipeed/clotho:latest
+    container_name: clotho-gateway
+    restart: on-failure
+    profiles:
+      - gateway
+    # Uncomment to access host network; leave commented unless needed.
+    #extra_hosts:
+    #  - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data:/root/.clotho

@@ -1,0 +1,190 @@
+// Copyright (c) 2026 Clotho contributors
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package health
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"maps"
+	"net/http"
+	"sync"
+	"time"
+)
+
+type Server struct {
+	server    *http.Server
+	mu        sync.RWMutex
+	ready     bool
+	checks    map[string]Check
+	startTime time.Time
+}
+
+type Check struct {
+	Name      string    `json:"name"`
+	Status    string    `json:"status"`
+	Message   string    `json:"message,omitempty"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+type StatusResponse struct {
+	Status string           `json:"status"`
+	Uptime string           `json:"uptime"`
+	Checks map[string]Check `json:"checks,omitempty"`
+}
+
+func NewServer(host string, port int) *Server {
+	mux := http.NewServeMux()
+	s := &Server{
+		ready:     false,
+		checks:    make(map[string]Check),
+		startTime: time.Now(),
+	}
+
+	mux.HandleFunc("/health", s.healthHandler)
+	mux.HandleFunc("/ready", s.readyHandler)
+
+	addr := fmt.Sprintf("%s:%d", host, port)
+	s.server = &http.Server{
+		Addr:         addr,
+		Handler:      mux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+	}
+
+	return s
+}
+
+func (s *Server) Start() error {
+	s.mu.Lock()
+	s.ready = true
+	s.mu.Unlock()
+	return s.server.ListenAndServe()
+}
+
+func (s *Server) StartContext(ctx context.Context) error {
+	s.mu.Lock()
+	s.ready = true
+	s.mu.Unlock()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- s.server.ListenAndServe()
+	}()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		return s.server.Shutdown(context.Background())
+	}
+}
+
+func (s *Server) Stop(ctx context.Context) error {
+	s.mu.Lock()
+	s.ready = false
+	s.mu.Unlock()
+	return s.server.Shutdown(ctx)
+}
+
+func (s *Server) SetReady(ready bool) {
+	s.mu.Lock()
+	s.ready = ready
+	s.mu.Unlock()
+}
+
+func (s *Server) RegisterCheck(name string, checkFn func() (bool, string)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	status, msg := checkFn()
+	s.checks[name] = Check{
+		Name:      name,
+		Status:    statusString(status),
+		Message:   msg,
+		Timestamp: time.Now(),
+	}
+}
+
+func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	uptime := time.Since(s.startTime)
+	resp := StatusResponse{
+		Status: "ok",
+		Uptime: uptime.String(),
+	}
+
+	json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) readyHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	s.mu.RLock()
+	ready := s.ready
+	checks := make(map[string]Check)
+	maps.Copy(checks, s.checks)
+	s.mu.RUnlock()
+
+	if !ready {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(StatusResponse{
+			Status: "not ready",
+			Checks: checks,
+		})
+		return
+	}
+
+	for _, check := range checks {
+		if check.Status == "fail" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(StatusResponse{
+				Status: "not ready",
+				Checks: checks,
+			})
+			return
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
+	uptime := time.Since(s.startTime)
+	json.NewEncoder(w).Encode(StatusResponse{
+		Status: "ready",
+		Uptime: uptime.String(),
+		Checks: checks,
+	})
+}
+
+// RegisterOnMux registers /health and /ready handlers onto the given mux.
+// This allows the health endpoints to be served by a shared HTTP server.
+func (s *Server) RegisterOnMux(mux *http.ServeMux) {
+	mux.HandleFunc("/health", s.healthHandler)
+	mux.HandleFunc("/ready", s.readyHandler)
+}
+
+func statusString(ok bool) string {
+	if ok {
+		return "ok"
+	}
+	return "fail"
+}
