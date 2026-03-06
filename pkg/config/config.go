@@ -712,7 +712,23 @@ func LoadConfig(path string) (*Config, error) {
 			return nil, err
 		}
 
+		// Pre-scan to check model_list count
+		var tmp Config
 		decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+			TagName:          "mapstructure",
+			Result:           &tmp,
+			WeaklyTypedInput: true,
+		})
+		if err != nil {
+			return nil, err
+		}
+		decoder.Decode(tomlMap)
+		if len(tmp.ModelList) > 0 {
+			cfg.ModelList = nil
+		}
+
+		// Full decode
+		decoder, err = mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 			TagName:          "mapstructure",
 			Result:           cfg,
 			WeaklyTypedInput: true,
@@ -730,7 +746,23 @@ func LoadConfig(path string) (*Config, error) {
 			return nil, err
 		}
 
+		// Pre-scan to check model_list count
+		var tmp Config
 		decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+			TagName:          "mapstructure",
+			Result:           &tmp,
+			WeaklyTypedInput: true,
+		})
+		if err != nil {
+			return nil, err
+		}
+		decoder.Decode(jsonMap)
+		if len(tmp.ModelList) > 0 {
+			cfg.ModelList = nil
+		}
+
+		// Full decode
+		decoder, err = mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 			TagName:          "mapstructure",
 			Result:           cfg,
 			WeaklyTypedInput: true,
