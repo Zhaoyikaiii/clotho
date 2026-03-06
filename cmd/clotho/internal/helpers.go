@@ -43,7 +43,15 @@ func GetConfigPath() string {
 		return configPath
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".clotho", "config.json")
+	configDir := filepath.Join(home, ".clotho")
+
+	// Prefer TOML config, fall back to JSON
+	tomlPath := filepath.Join(configDir, "config.toml")
+	if _, err := os.Stat(tomlPath); err == nil {
+		return tomlPath
+	}
+
+	return filepath.Join(configDir, "config.json")
 }
 
 func LoadConfig() (*config.Config, error) {

@@ -24,9 +24,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync/atomic"
 
-	"github.com/caarlos0/env/v11"
+	// "github.com/caarlos0/env/v11"
+	"github.com/mitchellh/mapstructure"
+	"github.com/pelletier/go-toml/v2"
 
 	"github.com/Zhaoyikaiii/clotho/pkg/fileutil"
 )
@@ -68,16 +72,16 @@ func (f *FlexibleStringSlice) UnmarshalJSON(data []byte) error {
 }
 
 type Config struct {
-	Agents    AgentsConfig    `json:"agents"`
-	Bindings  []AgentBinding  `json:"bindings,omitempty"`
-	Session   SessionConfig   `json:"session,omitempty"`
-	Channels  ChannelsConfig  `json:"channels"`
-	Providers ProvidersConfig `json:"providers,omitempty"`
-	ModelList []ModelConfig   `json:"model_list"` // New model-centric provider configuration
-	Gateway   GatewayConfig   `json:"gateway"`
-	Tools     ToolsConfig     `json:"tools"`
-	Heartbeat HeartbeatConfig `json:"heartbeat"`
-	Devices   DevicesConfig   `json:"devices"`
+	Agents    AgentsConfig    `json:"agents" mapstructure:"agents"`
+	Bindings  []AgentBinding  `json:"bindings" mapstructure:"bindings"`
+	Session   SessionConfig   `json:"session" mapstructure:"session"`
+	Channels  ChannelsConfig  `json:"channels" mapstructure:"channels"`
+	Providers ProvidersConfig `json:"providers" mapstructure:"providers"`
+	ModelList []ModelConfig   `json:"model_list" mapstructure:"model_list"`
+	Gateway   GatewayConfig   `json:"gateway" mapstructure:"gateway"`
+	Tools     ToolsConfig     `json:"tools" mapstructure:"tools"`
+	Heartbeat HeartbeatConfig `json:"heartbeat" mapstructure:"heartbeat"`
+	Devices   DevicesConfig   `json:"devices" mapstructure:"devices"`
 }
 
 // MarshalJSON implements custom JSON marshaling for Config
@@ -85,8 +89,8 @@ type Config struct {
 func (c Config) MarshalJSON() ([]byte, error) {
 	type Alias Config
 	aux := &struct {
-		Providers *ProvidersConfig `json:"providers,omitempty"`
-		Session   *SessionConfig   `json:"session,omitempty"`
+		Providers *ProvidersConfig `json:"providers,omitempty" mapstructure:"providers,omitempty"`
+		Session   *SessionConfig   `json:"session,omitempty" mapstructure:"session,omitempty"`
 		*Alias
 	}{
 		Alias: (*Alias)(&c),
@@ -106,16 +110,16 @@ func (c Config) MarshalJSON() ([]byte, error) {
 }
 
 type AgentsConfig struct {
-	Defaults AgentDefaults `json:"defaults"`
-	List     []AgentConfig `json:"list,omitempty"`
+	Defaults AgentDefaults `json:"defaults" mapstructure:"defaults"`
+	List     []AgentConfig `json:"list,omitempty" mapstructure:"list,omitempty"`
 }
 
 // AgentModelConfig supports both string and structured model config.
 // String format: "gpt-4" (just primary, no fallbacks)
 // Object format: {"primary": "gpt-4", "fallbacks": ["claude-haiku"]}
 type AgentModelConfig struct {
-	Primary   string   `json:"primary,omitempty"`
-	Fallbacks []string `json:"fallbacks,omitempty"`
+	Primary   string   `json:"primary,omitempty" mapstructure:"primary,omitempty"`
+	Fallbacks []string `json:"fallbacks,omitempty" mapstructure:"fallbacks,omitempty"`
 }
 
 func (m *AgentModelConfig) UnmarshalJSON(data []byte) error {
@@ -126,8 +130,8 @@ func (m *AgentModelConfig) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	type raw struct {
-		Primary   string   `json:"primary"`
-		Fallbacks []string `json:"fallbacks"`
+		Primary   string   `json:"primary" mapstructure:"primary"`
+		Fallbacks []string `json:"fallbacks" mapstructure:"fallbacks"`
 	}
 	var r raw
 	if err := json.Unmarshal(data, &r); err != nil {
@@ -143,66 +147,66 @@ func (m AgentModelConfig) MarshalJSON() ([]byte, error) {
 		return json.Marshal(m.Primary)
 	}
 	type raw struct {
-		Primary   string   `json:"primary,omitempty"`
-		Fallbacks []string `json:"fallbacks,omitempty"`
+		Primary   string   `json:"primary,omitempty" mapstructure:"primary,omitempty"`
+		Fallbacks []string `json:"fallbacks,omitempty" mapstructure:"fallbacks,omitempty"`
 	}
 	return json.Marshal(raw{Primary: m.Primary, Fallbacks: m.Fallbacks})
 }
 
 type AgentConfig struct {
-	ID        string            `json:"id"`
-	Default   bool              `json:"default,omitempty"`
-	Name      string            `json:"name,omitempty"`
-	Workspace string            `json:"workspace,omitempty"`
-	Model     *AgentModelConfig `json:"model,omitempty"`
-	Skills    []string          `json:"skills,omitempty"`
-	Subagents *SubagentsConfig  `json:"subagents,omitempty"`
+	ID        string            `json:"id" mapstructure:"id"`
+	Default   bool              `json:"default,omitempty" mapstructure:"default,omitempty"`
+	Name      string            `json:"name,omitempty" mapstructure:"name,omitempty"`
+	Workspace string            `json:"workspace,omitempty" mapstructure:"workspace,omitempty"`
+	Model     *AgentModelConfig `json:"model,omitempty" mapstructure:"model,omitempty"`
+	Skills    []string          `json:"skills,omitempty" mapstructure:"skills,omitempty"`
+	Subagents *SubagentsConfig  `json:"subagents,omitempty" mapstructure:"subagents,omitempty"`
 }
 
 type SubagentsConfig struct {
-	AllowAgents []string          `json:"allow_agents,omitempty"`
-	Model       *AgentModelConfig `json:"model,omitempty"`
+	AllowAgents []string          `json:"allow_agents,omitempty" mapstructure:"allow_agents,omitempty"`
+	Model       *AgentModelConfig `json:"model,omitempty" mapstructure:"model,omitempty"`
 }
 
 type PeerMatch struct {
-	Kind string `json:"kind"`
-	ID   string `json:"id"`
+	Kind string `json:"kind" mapstructure:"kind"`
+	ID   string `json:"id" mapstructure:"id"`
 }
 
 type BindingMatch struct {
-	Channel   string     `json:"channel"`
-	AccountID string     `json:"account_id,omitempty"`
-	Peer      *PeerMatch `json:"peer,omitempty"`
-	GuildID   string     `json:"guild_id,omitempty"`
-	TeamID    string     `json:"team_id,omitempty"`
+	Channel   string     `json:"channel" mapstructure:"channel"`
+	AccountID string     `json:"account_id,omitempty" mapstructure:"account_id,omitempty"`
+	Peer      *PeerMatch `json:"peer,omitempty" mapstructure:"peer,omitempty"`
+	GuildID   string     `json:"guild_id,omitempty" mapstructure:"guild_id,omitempty"`
+	TeamID    string     `json:"team_id,omitempty" mapstructure:"team_id,omitempty"`
 }
 
 type AgentBinding struct {
-	AgentID string       `json:"agent_id"`
-	Match   BindingMatch `json:"match"`
+	AgentID string       `json:"agent_id" mapstructure:"agent_id"`
+	Match   BindingMatch `json:"match" mapstructure:"match"`
 }
 
 type SessionConfig struct {
-	DMScope       string              `json:"dm_scope,omitempty"`
-	IdentityLinks map[string][]string `json:"identity_links,omitempty"`
+	DMScope       string              `json:"dm_scope,omitempty" mapstructure:"dm_scope,omitempty"`
+	IdentityLinks map[string][]string `json:"identity_links,omitempty" mapstructure:"identity_links,omitempty"`
 }
 
 type AgentDefaults struct {
-	Workspace                 string   `json:"workspace"                       env:"CLOTHO_AGENTS_DEFAULTS_WORKSPACE"`
-	RestrictToWorkspace       bool     `json:"restrict_to_workspace"           env:"CLOTHO_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE"`
-	AllowReadOutsideWorkspace bool     `json:"allow_read_outside_workspace"    env:"CLOTHO_AGENTS_DEFAULTS_ALLOW_READ_OUTSIDE_WORKSPACE"`
-	Provider                  string   `json:"provider"                        env:"CLOTHO_AGENTS_DEFAULTS_PROVIDER"`
-	ModelName                 string   `json:"model_name,omitempty"            env:"CLOTHO_AGENTS_DEFAULTS_MODEL_NAME"`
-	Model                     string   `json:"model"                           env:"CLOTHO_AGENTS_DEFAULTS_MODEL"` // Deprecated: use model_name instead
-	ModelFallbacks            []string `json:"model_fallbacks,omitempty"`
-	ImageModel                string   `json:"image_model,omitempty"           env:"CLOTHO_AGENTS_DEFAULTS_IMAGE_MODEL"`
-	ImageModelFallbacks       []string `json:"image_model_fallbacks,omitempty"`
-	MaxTokens                 int      `json:"max_tokens"                      env:"CLOTHO_AGENTS_DEFAULTS_MAX_TOKENS"`
-	Temperature               *float64 `json:"temperature,omitempty"           env:"CLOTHO_AGENTS_DEFAULTS_TEMPERATURE"`
-	MaxToolIterations         int      `json:"max_tool_iterations"             env:"CLOTHO_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
-	SummarizeMessageThreshold int      `json:"summarize_message_threshold"     env:"CLOTHO_AGENTS_DEFAULTS_SUMMARIZE_MESSAGE_THRESHOLD"`
-	SummarizeTokenPercent     int      `json:"summarize_token_percent"         env:"CLOTHO_AGENTS_DEFAULTS_SUMMARIZE_TOKEN_PERCENT"`
-	MaxMediaSize              int      `json:"max_media_size,omitempty"        env:"CLOTHO_AGENTS_DEFAULTS_MAX_MEDIA_SIZE"`
+	Workspace                 string   `json:"workspace" mapstructure:"workspace"                       env:"CLOTHO_AGENTS_DEFAULTS_WORKSPACE"`
+	RestrictToWorkspace       bool     `json:"restrict_to_workspace" mapstructure:"restrict_to_workspace"           env:"CLOTHO_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE"`
+	AllowReadOutsideWorkspace bool     `json:"allow_read_outside_workspace" mapstructure:"allow_read_outside_workspace"    env:"CLOTHO_AGENTS_DEFAULTS_ALLOW_READ_OUTSIDE_WORKSPACE"`
+	Provider                  string   `json:"provider" mapstructure:"provider"                        env:"CLOTHO_AGENTS_DEFAULTS_PROVIDER"`
+	ModelName                 string   `json:"model_name,omitempty" mapstructure:"model_name,omitempty"            env:"CLOTHO_AGENTS_DEFAULTS_MODEL_NAME"`
+	Model                     string   `json:"model" mapstructure:"model"                           env:"CLOTHO_AGENTS_DEFAULTS_MODEL"` // Deprecated: use model_name instead
+	ModelFallbacks            []string `json:"model_fallbacks,omitempty" mapstructure:"model_fallbacks,omitempty"`
+	ImageModel                string   `json:"image_model,omitempty" mapstructure:"image_model,omitempty"           env:"CLOTHO_AGENTS_DEFAULTS_IMAGE_MODEL"`
+	ImageModelFallbacks       []string `json:"image_model_fallbacks,omitempty" mapstructure:"image_model_fallbacks,omitempty"`
+	MaxTokens                 int      `json:"max_tokens" mapstructure:"max_tokens"                      env:"CLOTHO_AGENTS_DEFAULTS_MAX_TOKENS"`
+	Temperature               *float64 `json:"temperature,omitempty" mapstructure:"temperature,omitempty"           env:"CLOTHO_AGENTS_DEFAULTS_TEMPERATURE"`
+	MaxToolIterations         int      `json:"max_tool_iterations" mapstructure:"max_tool_iterations"             env:"CLOTHO_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
+	SummarizeMessageThreshold int      `json:"summarize_message_threshold" mapstructure:"summarize_message_threshold"     env:"CLOTHO_AGENTS_DEFAULTS_SUMMARIZE_MESSAGE_THRESHOLD"`
+	SummarizeTokenPercent     int      `json:"summarize_token_percent" mapstructure:"summarize_token_percent"         env:"CLOTHO_AGENTS_DEFAULTS_SUMMARIZE_TOKEN_PERCENT"`
+	MaxMediaSize              int      `json:"max_media_size,omitempty" mapstructure:"max_media_size,omitempty"        env:"CLOTHO_AGENTS_DEFAULTS_MAX_MEDIA_SIZE"`
 }
 
 const DefaultMaxMediaSize = 20 * 1024 * 1024 // 20 MB
@@ -224,220 +228,220 @@ func (d *AgentDefaults) GetModelName() string {
 }
 
 type ChannelsConfig struct {
-	WhatsApp   WhatsAppConfig   `json:"whatsapp"`
-	Telegram   TelegramConfig   `json:"telegram"`
-	Feishu     FeishuConfig     `json:"feishu"`
-	Discord    DiscordConfig    `json:"discord"`
-	MaixCam    MaixCamConfig    `json:"maixcam"`
-	QQ         QQConfig         `json:"qq"`
-	DingTalk   DingTalkConfig   `json:"dingtalk"`
-	Slack      SlackConfig      `json:"slack"`
-	LINE       LINEConfig       `json:"line"`
-	OneBot     OneBotConfig     `json:"onebot"`
-	WeCom      WeComConfig      `json:"wecom"`
-	WeComApp   WeComAppConfig   `json:"wecom_app"`
-	WeComAIBot WeComAIBotConfig `json:"wecom_aibot"`
+	WhatsApp   WhatsAppConfig   `json:"whatsapp" mapstructure:"whatsapp"`
+	Telegram   TelegramConfig   `json:"telegram" mapstructure:"telegram"`
+	Feishu     FeishuConfig     `json:"feishu" mapstructure:"feishu"`
+	Discord    DiscordConfig    `json:"discord" mapstructure:"discord"`
+	MaixCam    MaixCamConfig    `json:"maixcam" mapstructure:"maixcam"`
+	QQ         QQConfig         `json:"qq" mapstructure:"qq"`
+	DingTalk   DingTalkConfig   `json:"dingtalk" mapstructure:"dingtalk"`
+	Slack      SlackConfig      `json:"slack" mapstructure:"slack"`
+	LINE       LINEConfig       `json:"line" mapstructure:"line"`
+	OneBot     OneBotConfig     `json:"onebot" mapstructure:"onebot"`
+	WeCom      WeComConfig      `json:"wecom" mapstructure:"wecom"`
+	WeComApp   WeComAppConfig   `json:"wecom_app" mapstructure:"wecom_app"`
+	WeComAIBot WeComAIBotConfig `json:"wecom_aibot" mapstructure:"wecom_aibot"`
 }
 
 // GroupTriggerConfig controls when the bot responds in group chats.
 type GroupTriggerConfig struct {
-	MentionOnly bool     `json:"mention_only,omitempty"`
-	Prefixes    []string `json:"prefixes,omitempty"`
+	MentionOnly bool     `json:"mention_only,omitempty" mapstructure:"mention_only,omitempty"`
+	Prefixes    []string `json:"prefixes,omitempty" mapstructure:"prefixes,omitempty"`
 }
 
 // TypingConfig controls typing indicator behavior (Phase 10).
 type TypingConfig struct {
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled bool `json:"enabled,omitempty" mapstructure:"enabled,omitempty"`
 }
 
 // PlaceholderConfig controls placeholder message behavior (Phase 10).
 type PlaceholderConfig struct {
-	Enabled bool   `json:"enabled,omitempty"`
-	Text    string `json:"text,omitempty"`
+	Enabled bool   `json:"enabled,omitempty" mapstructure:"enabled,omitempty"`
+	Text    string `json:"text,omitempty" mapstructure:"text,omitempty"`
 }
 
 type WhatsAppConfig struct {
-	Enabled            bool                `json:"enabled"              env:"CLOTHO_CHANNELS_WHATSAPP_ENABLED"`
-	BridgeURL          string              `json:"bridge_url"           env:"CLOTHO_CHANNELS_WHATSAPP_BRIDGE_URL"`
-	UseNative          bool                `json:"use_native"           env:"CLOTHO_CHANNELS_WHATSAPP_USE_NATIVE"`
-	SessionStorePath   string              `json:"session_store_path"   env:"CLOTHO_CHANNELS_WHATSAPP_SESSION_STORE_PATH"`
-	AllowFrom          FlexibleStringSlice `json:"allow_from"           env:"CLOTHO_CHANNELS_WHATSAPP_ALLOW_FROM"`
-	ReasoningChannelID string              `json:"reasoning_channel_id" env:"CLOTHO_CHANNELS_WHATSAPP_REASONING_CHANNEL_ID"`
+	Enabled            bool                `json:"enabled" mapstructure:"enabled"              env:"CLOTHO_CHANNELS_WHATSAPP_ENABLED"`
+	BridgeURL          string              `json:"bridge_url" mapstructure:"bridge_url"           env:"CLOTHO_CHANNELS_WHATSAPP_BRIDGE_URL"`
+	UseNative          bool                `json:"use_native" mapstructure:"use_native"           env:"CLOTHO_CHANNELS_WHATSAPP_USE_NATIVE"`
+	SessionStorePath   string              `json:"session_store_path" mapstructure:"session_store_path"   env:"CLOTHO_CHANNELS_WHATSAPP_SESSION_STORE_PATH"`
+	AllowFrom          FlexibleStringSlice `json:"allow_from" mapstructure:"allow_from"           env:"CLOTHO_CHANNELS_WHATSAPP_ALLOW_FROM"`
+	ReasoningChannelID string              `json:"reasoning_channel_id" mapstructure:"reasoning_channel_id" env:"CLOTHO_CHANNELS_WHATSAPP_REASONING_CHANNEL_ID"`
 }
 
 type TelegramConfig struct {
-	Enabled            bool                `json:"enabled"                 env:"CLOTHO_CHANNELS_TELEGRAM_ENABLED"`
-	Token              string              `json:"token"                   env:"CLOTHO_CHANNELS_TELEGRAM_TOKEN"`
-	BaseURL            string              `json:"base_url"                env:"CLOTHO_CHANNELS_TELEGRAM_BASE_URL"`
-	Proxy              string              `json:"proxy"                   env:"CLOTHO_CHANNELS_TELEGRAM_PROXY"`
-	AllowFrom          FlexibleStringSlice `json:"allow_from"              env:"CLOTHO_CHANNELS_TELEGRAM_ALLOW_FROM"`
-	GroupTrigger       GroupTriggerConfig  `json:"group_trigger,omitempty"`
-	Typing             TypingConfig        `json:"typing,omitempty"`
-	Placeholder        PlaceholderConfig   `json:"placeholder,omitempty"`
-	ReasoningChannelID string              `json:"reasoning_channel_id"    env:"CLOTHO_CHANNELS_TELEGRAM_REASONING_CHANNEL_ID"`
+	Enabled            bool                `json:"enabled" mapstructure:"enabled"                 env:"CLOTHO_CHANNELS_TELEGRAM_ENABLED"`
+	Token              string              `json:"token" mapstructure:"token"                   env:"CLOTHO_CHANNELS_TELEGRAM_TOKEN"`
+	BaseURL            string              `json:"base_url" mapstructure:"base_url"                env:"CLOTHO_CHANNELS_TELEGRAM_BASE_URL"`
+	Proxy              string              `json:"proxy" mapstructure:"proxy"                   env:"CLOTHO_CHANNELS_TELEGRAM_PROXY"`
+	AllowFrom          FlexibleStringSlice `json:"allow_from" mapstructure:"allow_from"              env:"CLOTHO_CHANNELS_TELEGRAM_ALLOW_FROM"`
+	GroupTrigger       GroupTriggerConfig  `json:"group_trigger,omitempty" mapstructure:"group_trigger,omitempty"`
+	Typing             TypingConfig        `json:"typing,omitempty" mapstructure:"typing,omitempty"`
+	Placeholder        PlaceholderConfig   `json:"placeholder,omitempty" mapstructure:"placeholder,omitempty"`
+	ReasoningChannelID string              `json:"reasoning_channel_id" mapstructure:"reasoning_channel_id"    env:"CLOTHO_CHANNELS_TELEGRAM_REASONING_CHANNEL_ID"`
 }
 
 type FeishuConfig struct {
-	Enabled            bool                `json:"enabled"                 env:"CLOTHO_CHANNELS_FEISHU_ENABLED"`
-	AppID              string              `json:"app_id"                  env:"CLOTHO_CHANNELS_FEISHU_APP_ID"`
-	AppSecret          string              `json:"app_secret"              env:"CLOTHO_CHANNELS_FEISHU_APP_SECRET"`
-	EncryptKey         string              `json:"encrypt_key"             env:"CLOTHO_CHANNELS_FEISHU_ENCRYPT_KEY"`
-	VerificationToken  string              `json:"verification_token"      env:"CLOTHO_CHANNELS_FEISHU_VERIFICATION_TOKEN"`
-	AllowFrom          FlexibleStringSlice `json:"allow_from"              env:"CLOTHO_CHANNELS_FEISHU_ALLOW_FROM"`
-	GroupTrigger       GroupTriggerConfig  `json:"group_trigger,omitempty"`
-	Placeholder        PlaceholderConfig   `json:"placeholder,omitempty"`
-	ReasoningChannelID string              `json:"reasoning_channel_id"    env:"CLOTHO_CHANNELS_FEISHU_REASONING_CHANNEL_ID"`
+	Enabled            bool                `json:"enabled" mapstructure:"enabled"                 env:"CLOTHO_CHANNELS_FEISHU_ENABLED"`
+	AppID              string              `json:"app_id" mapstructure:"app_id"                  env:"CLOTHO_CHANNELS_FEISHU_APP_ID"`
+	AppSecret          string              `json:"app_secret" mapstructure:"app_secret"              env:"CLOTHO_CHANNELS_FEISHU_APP_SECRET"`
+	EncryptKey         string              `json:"encrypt_key" mapstructure:"encrypt_key"             env:"CLOTHO_CHANNELS_FEISHU_ENCRYPT_KEY"`
+	VerificationToken  string              `json:"verification_token" mapstructure:"verification_token"      env:"CLOTHO_CHANNELS_FEISHU_VERIFICATION_TOKEN"`
+	AllowFrom          FlexibleStringSlice `json:"allow_from" mapstructure:"allow_from"              env:"CLOTHO_CHANNELS_FEISHU_ALLOW_FROM"`
+	GroupTrigger       GroupTriggerConfig  `json:"group_trigger,omitempty" mapstructure:"group_trigger,omitempty"`
+	Placeholder        PlaceholderConfig   `json:"placeholder,omitempty" mapstructure:"placeholder,omitempty"`
+	ReasoningChannelID string              `json:"reasoning_channel_id" mapstructure:"reasoning_channel_id"    env:"CLOTHO_CHANNELS_FEISHU_REASONING_CHANNEL_ID"`
 }
 
 type DiscordConfig struct {
-	Enabled            bool                `json:"enabled"                 env:"CLOTHO_CHANNELS_DISCORD_ENABLED"`
-	Token              string              `json:"token"                   env:"CLOTHO_CHANNELS_DISCORD_TOKEN"`
-	Proxy              string              `json:"proxy"                   env:"CLOTHO_CHANNELS_DISCORD_PROXY"`
-	AllowFrom          FlexibleStringSlice `json:"allow_from"              env:"CLOTHO_CHANNELS_DISCORD_ALLOW_FROM"`
-	MentionOnly        bool                `json:"mention_only"            env:"CLOTHO_CHANNELS_DISCORD_MENTION_ONLY"`
-	GroupTrigger       GroupTriggerConfig  `json:"group_trigger,omitempty"`
-	Typing             TypingConfig        `json:"typing,omitempty"`
-	Placeholder        PlaceholderConfig   `json:"placeholder,omitempty"`
-	ReasoningChannelID string              `json:"reasoning_channel_id"    env:"CLOTHO_CHANNELS_DISCORD_REASONING_CHANNEL_ID"`
+	Enabled            bool                `json:"enabled" mapstructure:"enabled"                 env:"CLOTHO_CHANNELS_DISCORD_ENABLED"`
+	Token              string              `json:"token" mapstructure:"token"                   env:"CLOTHO_CHANNELS_DISCORD_TOKEN"`
+	Proxy              string              `json:"proxy" mapstructure:"proxy"                   env:"CLOTHO_CHANNELS_DISCORD_PROXY"`
+	AllowFrom          FlexibleStringSlice `json:"allow_from" mapstructure:"allow_from"              env:"CLOTHO_CHANNELS_DISCORD_ALLOW_FROM"`
+	MentionOnly        bool                `json:"mention_only" mapstructure:"mention_only"            env:"CLOTHO_CHANNELS_DISCORD_MENTION_ONLY"`
+	GroupTrigger       GroupTriggerConfig  `json:"group_trigger,omitempty" mapstructure:"group_trigger,omitempty"`
+	Typing             TypingConfig        `json:"typing,omitempty" mapstructure:"typing,omitempty"`
+	Placeholder        PlaceholderConfig   `json:"placeholder,omitempty" mapstructure:"placeholder,omitempty"`
+	ReasoningChannelID string              `json:"reasoning_channel_id" mapstructure:"reasoning_channel_id"    env:"CLOTHO_CHANNELS_DISCORD_REASONING_CHANNEL_ID"`
 }
 
 type MaixCamConfig struct {
-	Enabled            bool                `json:"enabled"              env:"CLOTHO_CHANNELS_MAIXCAM_ENABLED"`
-	Host               string              `json:"host"                 env:"CLOTHO_CHANNELS_MAIXCAM_HOST"`
-	Port               int                 `json:"port"                 env:"CLOTHO_CHANNELS_MAIXCAM_PORT"`
-	AllowFrom          FlexibleStringSlice `json:"allow_from"           env:"CLOTHO_CHANNELS_MAIXCAM_ALLOW_FROM"`
-	ReasoningChannelID string              `json:"reasoning_channel_id" env:"CLOTHO_CHANNELS_MAIXCAM_REASONING_CHANNEL_ID"`
+	Enabled            bool                `json:"enabled" mapstructure:"enabled"              env:"CLOTHO_CHANNELS_MAIXCAM_ENABLED"`
+	Host               string              `json:"host" mapstructure:"host"                 env:"CLOTHO_CHANNELS_MAIXCAM_HOST"`
+	Port               int                 `json:"port" mapstructure:"port"                 env:"CLOTHO_CHANNELS_MAIXCAM_PORT"`
+	AllowFrom          FlexibleStringSlice `json:"allow_from" mapstructure:"allow_from"           env:"CLOTHO_CHANNELS_MAIXCAM_ALLOW_FROM"`
+	ReasoningChannelID string              `json:"reasoning_channel_id" mapstructure:"reasoning_channel_id" env:"CLOTHO_CHANNELS_MAIXCAM_REASONING_CHANNEL_ID"`
 }
 
 type QQConfig struct {
-	Enabled            bool                `json:"enabled"                 env:"CLOTHO_CHANNELS_QQ_ENABLED"`
-	AppID              string              `json:"app_id"                  env:"CLOTHO_CHANNELS_QQ_APP_ID"`
-	AppSecret          string              `json:"app_secret"              env:"CLOTHO_CHANNELS_QQ_APP_SECRET"`
-	AllowFrom          FlexibleStringSlice `json:"allow_from"              env:"CLOTHO_CHANNELS_QQ_ALLOW_FROM"`
-	GroupTrigger       GroupTriggerConfig  `json:"group_trigger,omitempty"`
-	ReasoningChannelID string              `json:"reasoning_channel_id"    env:"CLOTHO_CHANNELS_QQ_REASONING_CHANNEL_ID"`
+	Enabled            bool                `json:"enabled" mapstructure:"enabled"                 env:"CLOTHO_CHANNELS_QQ_ENABLED"`
+	AppID              string              `json:"app_id" mapstructure:"app_id"                  env:"CLOTHO_CHANNELS_QQ_APP_ID"`
+	AppSecret          string              `json:"app_secret" mapstructure:"app_secret"              env:"CLOTHO_CHANNELS_QQ_APP_SECRET"`
+	AllowFrom          FlexibleStringSlice `json:"allow_from" mapstructure:"allow_from"              env:"CLOTHO_CHANNELS_QQ_ALLOW_FROM"`
+	GroupTrigger       GroupTriggerConfig  `json:"group_trigger,omitempty" mapstructure:"group_trigger,omitempty"`
+	ReasoningChannelID string              `json:"reasoning_channel_id" mapstructure:"reasoning_channel_id"    env:"CLOTHO_CHANNELS_QQ_REASONING_CHANNEL_ID"`
 }
 
 type DingTalkConfig struct {
-	Enabled            bool                `json:"enabled"                 env:"CLOTHO_CHANNELS_DINGTALK_ENABLED"`
-	ClientID           string              `json:"client_id"               env:"CLOTHO_CHANNELS_DINGTALK_CLIENT_ID"`
-	ClientSecret       string              `json:"client_secret"           env:"CLOTHO_CHANNELS_DINGTALK_CLIENT_SECRET"`
-	AllowFrom          FlexibleStringSlice `json:"allow_from"              env:"CLOTHO_CHANNELS_DINGTALK_ALLOW_FROM"`
-	GroupTrigger       GroupTriggerConfig  `json:"group_trigger,omitempty"`
-	ReasoningChannelID string              `json:"reasoning_channel_id"    env:"CLOTHO_CHANNELS_DINGTALK_REASONING_CHANNEL_ID"`
+	Enabled            bool                `json:"enabled" mapstructure:"enabled"                 env:"CLOTHO_CHANNELS_DINGTALK_ENABLED"`
+	ClientID           string              `json:"client_id" mapstructure:"client_id"               env:"CLOTHO_CHANNELS_DINGTALK_CLIENT_ID"`
+	ClientSecret       string              `json:"client_secret" mapstructure:"client_secret"           env:"CLOTHO_CHANNELS_DINGTALK_CLIENT_SECRET"`
+	AllowFrom          FlexibleStringSlice `json:"allow_from" mapstructure:"allow_from"              env:"CLOTHO_CHANNELS_DINGTALK_ALLOW_FROM"`
+	GroupTrigger       GroupTriggerConfig  `json:"group_trigger,omitempty" mapstructure:"group_trigger,omitempty"`
+	ReasoningChannelID string              `json:"reasoning_channel_id" mapstructure:"reasoning_channel_id"    env:"CLOTHO_CHANNELS_DINGTALK_REASONING_CHANNEL_ID"`
 }
 
 type SlackConfig struct {
-	Enabled            bool                `json:"enabled"                 env:"CLOTHO_CHANNELS_SLACK_ENABLED"`
-	BotToken           string              `json:"bot_token"               env:"CLOTHO_CHANNELS_SLACK_BOT_TOKEN"`
-	AppToken           string              `json:"app_token"               env:"CLOTHO_CHANNELS_SLACK_APP_TOKEN"`
-	AllowFrom          FlexibleStringSlice `json:"allow_from"              env:"CLOTHO_CHANNELS_SLACK_ALLOW_FROM"`
-	GroupTrigger       GroupTriggerConfig  `json:"group_trigger,omitempty"`
-	Typing             TypingConfig        `json:"typing,omitempty"`
-	Placeholder        PlaceholderConfig   `json:"placeholder,omitempty"`
-	ReasoningChannelID string              `json:"reasoning_channel_id"    env:"CLOTHO_CHANNELS_SLACK_REASONING_CHANNEL_ID"`
+	Enabled            bool                `json:"enabled" mapstructure:"enabled"                 env:"CLOTHO_CHANNELS_SLACK_ENABLED"`
+	BotToken           string              `json:"bot_token" mapstructure:"bot_token"               env:"CLOTHO_CHANNELS_SLACK_BOT_TOKEN"`
+	AppToken           string              `json:"app_token" mapstructure:"app_token"               env:"CLOTHO_CHANNELS_SLACK_APP_TOKEN"`
+	AllowFrom          FlexibleStringSlice `json:"allow_from" mapstructure:"allow_from"              env:"CLOTHO_CHANNELS_SLACK_ALLOW_FROM"`
+	GroupTrigger       GroupTriggerConfig  `json:"group_trigger,omitempty" mapstructure:"group_trigger,omitempty"`
+	Typing             TypingConfig        `json:"typing,omitempty" mapstructure:"typing,omitempty"`
+	Placeholder        PlaceholderConfig   `json:"placeholder,omitempty" mapstructure:"placeholder,omitempty"`
+	ReasoningChannelID string              `json:"reasoning_channel_id" mapstructure:"reasoning_channel_id"    env:"CLOTHO_CHANNELS_SLACK_REASONING_CHANNEL_ID"`
 }
 
 type LINEConfig struct {
-	Enabled            bool                `json:"enabled"                 env:"CLOTHO_CHANNELS_LINE_ENABLED"`
-	ChannelSecret      string              `json:"channel_secret"          env:"CLOTHO_CHANNELS_LINE_CHANNEL_SECRET"`
-	ChannelAccessToken string              `json:"channel_access_token"    env:"CLOTHO_CHANNELS_LINE_CHANNEL_ACCESS_TOKEN"`
-	WebhookHost        string              `json:"webhook_host"            env:"CLOTHO_CHANNELS_LINE_WEBHOOK_HOST"`
-	WebhookPort        int                 `json:"webhook_port"            env:"CLOTHO_CHANNELS_LINE_WEBHOOK_PORT"`
-	WebhookPath        string              `json:"webhook_path"            env:"CLOTHO_CHANNELS_LINE_WEBHOOK_PATH"`
-	AllowFrom          FlexibleStringSlice `json:"allow_from"              env:"CLOTHO_CHANNELS_LINE_ALLOW_FROM"`
-	GroupTrigger       GroupTriggerConfig  `json:"group_trigger,omitempty"`
-	Typing             TypingConfig        `json:"typing,omitempty"`
-	Placeholder        PlaceholderConfig   `json:"placeholder,omitempty"`
-	ReasoningChannelID string              `json:"reasoning_channel_id"    env:"CLOTHO_CHANNELS_LINE_REASONING_CHANNEL_ID"`
+	Enabled            bool                `json:"enabled" mapstructure:"enabled"                 env:"CLOTHO_CHANNELS_LINE_ENABLED"`
+	ChannelSecret      string              `json:"channel_secret" mapstructure:"channel_secret"          env:"CLOTHO_CHANNELS_LINE_CHANNEL_SECRET"`
+	ChannelAccessToken string              `json:"channel_access_token" mapstructure:"channel_access_token"    env:"CLOTHO_CHANNELS_LINE_CHANNEL_ACCESS_TOKEN"`
+	WebhookHost        string              `json:"webhook_host" mapstructure:"webhook_host"            env:"CLOTHO_CHANNELS_LINE_WEBHOOK_HOST"`
+	WebhookPort        int                 `json:"webhook_port" mapstructure:"webhook_port"            env:"CLOTHO_CHANNELS_LINE_WEBHOOK_PORT"`
+	WebhookPath        string              `json:"webhook_path" mapstructure:"webhook_path"            env:"CLOTHO_CHANNELS_LINE_WEBHOOK_PATH"`
+	AllowFrom          FlexibleStringSlice `json:"allow_from" mapstructure:"allow_from"              env:"CLOTHO_CHANNELS_LINE_ALLOW_FROM"`
+	GroupTrigger       GroupTriggerConfig  `json:"group_trigger,omitempty" mapstructure:"group_trigger,omitempty"`
+	Typing             TypingConfig        `json:"typing,omitempty" mapstructure:"typing,omitempty"`
+	Placeholder        PlaceholderConfig   `json:"placeholder,omitempty" mapstructure:"placeholder,omitempty"`
+	ReasoningChannelID string              `json:"reasoning_channel_id" mapstructure:"reasoning_channel_id"    env:"CLOTHO_CHANNELS_LINE_REASONING_CHANNEL_ID"`
 }
 
 type OneBotConfig struct {
-	Enabled            bool                `json:"enabled"                 env:"CLOTHO_CHANNELS_ONEBOT_ENABLED"`
-	WSUrl              string              `json:"ws_url"                  env:"CLOTHO_CHANNELS_ONEBOT_WS_URL"`
-	AccessToken        string              `json:"access_token"            env:"CLOTHO_CHANNELS_ONEBOT_ACCESS_TOKEN"`
-	ReconnectInterval  int                 `json:"reconnect_interval"      env:"CLOTHO_CHANNELS_ONEBOT_RECONNECT_INTERVAL"`
-	GroupTriggerPrefix []string            `json:"group_trigger_prefix"    env:"CLOTHO_CHANNELS_ONEBOT_GROUP_TRIGGER_PREFIX"`
-	AllowFrom          FlexibleStringSlice `json:"allow_from"              env:"CLOTHO_CHANNELS_ONEBOT_ALLOW_FROM"`
-	GroupTrigger       GroupTriggerConfig  `json:"group_trigger,omitempty"`
-	Typing             TypingConfig        `json:"typing,omitempty"`
-	Placeholder        PlaceholderConfig   `json:"placeholder,omitempty"`
-	ReasoningChannelID string              `json:"reasoning_channel_id"    env:"CLOTHO_CHANNELS_ONEBOT_REASONING_CHANNEL_ID"`
+	Enabled            bool                `json:"enabled" mapstructure:"enabled"                 env:"CLOTHO_CHANNELS_ONEBOT_ENABLED"`
+	WSUrl              string              `json:"ws_url" mapstructure:"ws_url"                  env:"CLOTHO_CHANNELS_ONEBOT_WS_URL"`
+	AccessToken        string              `json:"access_token" mapstructure:"access_token"            env:"CLOTHO_CHANNELS_ONEBOT_ACCESS_TOKEN"`
+	ReconnectInterval  int                 `json:"reconnect_interval" mapstructure:"reconnect_interval"      env:"CLOTHO_CHANNELS_ONEBOT_RECONNECT_INTERVAL"`
+	GroupTriggerPrefix []string            `json:"group_trigger_prefix" mapstructure:"group_trigger_prefix"    env:"CLOTHO_CHANNELS_ONEBOT_GROUP_TRIGGER_PREFIX"`
+	AllowFrom          FlexibleStringSlice `json:"allow_from" mapstructure:"allow_from"              env:"CLOTHO_CHANNELS_ONEBOT_ALLOW_FROM"`
+	GroupTrigger       GroupTriggerConfig  `json:"group_trigger,omitempty" mapstructure:"group_trigger,omitempty"`
+	Typing             TypingConfig        `json:"typing,omitempty" mapstructure:"typing,omitempty"`
+	Placeholder        PlaceholderConfig   `json:"placeholder,omitempty" mapstructure:"placeholder,omitempty"`
+	ReasoningChannelID string              `json:"reasoning_channel_id" mapstructure:"reasoning_channel_id"    env:"CLOTHO_CHANNELS_ONEBOT_REASONING_CHANNEL_ID"`
 }
 
 type WeComConfig struct {
-	Enabled            bool                `json:"enabled"                 env:"CLOTHO_CHANNELS_WECOM_ENABLED"`
-	Token              string              `json:"token"                   env:"CLOTHO_CHANNELS_WECOM_TOKEN"`
-	EncodingAESKey     string              `json:"encoding_aes_key"        env:"CLOTHO_CHANNELS_WECOM_ENCODING_AES_KEY"`
-	WebhookURL         string              `json:"webhook_url"             env:"CLOTHO_CHANNELS_WECOM_WEBHOOK_URL"`
-	WebhookHost        string              `json:"webhook_host"            env:"CLOTHO_CHANNELS_WECOM_WEBHOOK_HOST"`
-	WebhookPort        int                 `json:"webhook_port"            env:"CLOTHO_CHANNELS_WECOM_WEBHOOK_PORT"`
-	WebhookPath        string              `json:"webhook_path"            env:"CLOTHO_CHANNELS_WECOM_WEBHOOK_PATH"`
-	AllowFrom          FlexibleStringSlice `json:"allow_from"              env:"CLOTHO_CHANNELS_WECOM_ALLOW_FROM"`
-	ReplyTimeout       int                 `json:"reply_timeout"           env:"CLOTHO_CHANNELS_WECOM_REPLY_TIMEOUT"`
-	GroupTrigger       GroupTriggerConfig  `json:"group_trigger,omitempty"`
-	ReasoningChannelID string              `json:"reasoning_channel_id"    env:"CLOTHO_CHANNELS_WECOM_REASONING_CHANNEL_ID"`
+	Enabled            bool                `json:"enabled" mapstructure:"enabled"                 env:"CLOTHO_CHANNELS_WECOM_ENABLED"`
+	Token              string              `json:"token" mapstructure:"token"                   env:"CLOTHO_CHANNELS_WECOM_TOKEN"`
+	EncodingAESKey     string              `json:"encoding_aes_key" mapstructure:"encoding_aes_key"        env:"CLOTHO_CHANNELS_WECOM_ENCODING_AES_KEY"`
+	WebhookURL         string              `json:"webhook_url" mapstructure:"webhook_url"             env:"CLOTHO_CHANNELS_WECOM_WEBHOOK_URL"`
+	WebhookHost        string              `json:"webhook_host" mapstructure:"webhook_host"            env:"CLOTHO_CHANNELS_WECOM_WEBHOOK_HOST"`
+	WebhookPort        int                 `json:"webhook_port" mapstructure:"webhook_port"            env:"CLOTHO_CHANNELS_WECOM_WEBHOOK_PORT"`
+	WebhookPath        string              `json:"webhook_path" mapstructure:"webhook_path"            env:"CLOTHO_CHANNELS_WECOM_WEBHOOK_PATH"`
+	AllowFrom          FlexibleStringSlice `json:"allow_from" mapstructure:"allow_from"              env:"CLOTHO_CHANNELS_WECOM_ALLOW_FROM"`
+	ReplyTimeout       int                 `json:"reply_timeout" mapstructure:"reply_timeout"           env:"CLOTHO_CHANNELS_WECOM_REPLY_TIMEOUT"`
+	GroupTrigger       GroupTriggerConfig  `json:"group_trigger,omitempty" mapstructure:"group_trigger,omitempty"`
+	ReasoningChannelID string              `json:"reasoning_channel_id" mapstructure:"reasoning_channel_id"    env:"CLOTHO_CHANNELS_WECOM_REASONING_CHANNEL_ID"`
 }
 
 type WeComAppConfig struct {
-	Enabled            bool                `json:"enabled"                 env:"CLOTHO_CHANNELS_WECOM_APP_ENABLED"`
-	CorpID             string              `json:"corp_id"                 env:"CLOTHO_CHANNELS_WECOM_APP_CORP_ID"`
-	CorpSecret         string              `json:"corp_secret"             env:"CLOTHO_CHANNELS_WECOM_APP_CORP_SECRET"`
-	AgentID            int64               `json:"agent_id"                env:"CLOTHO_CHANNELS_WECOM_APP_AGENT_ID"`
-	Token              string              `json:"token"                   env:"CLOTHO_CHANNELS_WECOM_APP_TOKEN"`
-	EncodingAESKey     string              `json:"encoding_aes_key"        env:"CLOTHO_CHANNELS_WECOM_APP_ENCODING_AES_KEY"`
-	WebhookHost        string              `json:"webhook_host"            env:"CLOTHO_CHANNELS_WECOM_APP_WEBHOOK_HOST"`
-	WebhookPort        int                 `json:"webhook_port"            env:"CLOTHO_CHANNELS_WECOM_APP_WEBHOOK_PORT"`
-	WebhookPath        string              `json:"webhook_path"            env:"CLOTHO_CHANNELS_WECOM_APP_WEBHOOK_PATH"`
-	AllowFrom          FlexibleStringSlice `json:"allow_from"              env:"CLOTHO_CHANNELS_WECOM_APP_ALLOW_FROM"`
-	ReplyTimeout       int                 `json:"reply_timeout"           env:"CLOTHO_CHANNELS_WECOM_APP_REPLY_TIMEOUT"`
-	GroupTrigger       GroupTriggerConfig  `json:"group_trigger,omitempty"`
-	ReasoningChannelID string              `json:"reasoning_channel_id"    env:"CLOTHO_CHANNELS_WECOM_APP_REASONING_CHANNEL_ID"`
+	Enabled            bool                `json:"enabled" mapstructure:"enabled"                 env:"CLOTHO_CHANNELS_WECOM_APP_ENABLED"`
+	CorpID             string              `json:"corp_id" mapstructure:"corp_id"                 env:"CLOTHO_CHANNELS_WECOM_APP_CORP_ID"`
+	CorpSecret         string              `json:"corp_secret" mapstructure:"corp_secret"             env:"CLOTHO_CHANNELS_WECOM_APP_CORP_SECRET"`
+	AgentID            int64               `json:"agent_id" mapstructure:"agent_id"                env:"CLOTHO_CHANNELS_WECOM_APP_AGENT_ID"`
+	Token              string              `json:"token" mapstructure:"token"                   env:"CLOTHO_CHANNELS_WECOM_APP_TOKEN"`
+	EncodingAESKey     string              `json:"encoding_aes_key" mapstructure:"encoding_aes_key"        env:"CLOTHO_CHANNELS_WECOM_APP_ENCODING_AES_KEY"`
+	WebhookHost        string              `json:"webhook_host" mapstructure:"webhook_host"            env:"CLOTHO_CHANNELS_WECOM_APP_WEBHOOK_HOST"`
+	WebhookPort        int                 `json:"webhook_port" mapstructure:"webhook_port"            env:"CLOTHO_CHANNELS_WECOM_APP_WEBHOOK_PORT"`
+	WebhookPath        string              `json:"webhook_path" mapstructure:"webhook_path"            env:"CLOTHO_CHANNELS_WECOM_APP_WEBHOOK_PATH"`
+	AllowFrom          FlexibleStringSlice `json:"allow_from" mapstructure:"allow_from"              env:"CLOTHO_CHANNELS_WECOM_APP_ALLOW_FROM"`
+	ReplyTimeout       int                 `json:"reply_timeout" mapstructure:"reply_timeout"           env:"CLOTHO_CHANNELS_WECOM_APP_REPLY_TIMEOUT"`
+	GroupTrigger       GroupTriggerConfig  `json:"group_trigger,omitempty" mapstructure:"group_trigger,omitempty"`
+	ReasoningChannelID string              `json:"reasoning_channel_id" mapstructure:"reasoning_channel_id"    env:"CLOTHO_CHANNELS_WECOM_APP_REASONING_CHANNEL_ID"`
 }
 
 type WeComAIBotConfig struct {
-	Enabled            bool                `json:"enabled"              env:"CLOTHO_CHANNELS_WECOM_AIBOT_ENABLED"`
-	Token              string              `json:"token"                env:"CLOTHO_CHANNELS_WECOM_AIBOT_TOKEN"`
-	EncodingAESKey     string              `json:"encoding_aes_key"     env:"CLOTHO_CHANNELS_WECOM_AIBOT_ENCODING_AES_KEY"`
-	WebhookPath        string              `json:"webhook_path"         env:"CLOTHO_CHANNELS_WECOM_AIBOT_WEBHOOK_PATH"`
-	AllowFrom          FlexibleStringSlice `json:"allow_from"           env:"CLOTHO_CHANNELS_WECOM_AIBOT_ALLOW_FROM"`
-	ReplyTimeout       int                 `json:"reply_timeout"        env:"CLOTHO_CHANNELS_WECOM_AIBOT_REPLY_TIMEOUT"`
-	MaxSteps           int                 `json:"max_steps"            env:"CLOTHO_CHANNELS_WECOM_AIBOT_MAX_STEPS"`       // Maximum streaming steps
-	WelcomeMessage     string              `json:"welcome_message"      env:"CLOTHO_CHANNELS_WECOM_AIBOT_WELCOME_MESSAGE"` // Sent on enter_chat event; empty = no welcome
-	ReasoningChannelID string              `json:"reasoning_channel_id" env:"CLOTHO_CHANNELS_WECOM_AIBOT_REASONING_CHANNEL_ID"`
+	Enabled            bool                `json:"enabled" mapstructure:"enabled"              env:"CLOTHO_CHANNELS_WECOM_AIBOT_ENABLED"`
+	Token              string              `json:"token" mapstructure:"token"                env:"CLOTHO_CHANNELS_WECOM_AIBOT_TOKEN"`
+	EncodingAESKey     string              `json:"encoding_aes_key" mapstructure:"encoding_aes_key"     env:"CLOTHO_CHANNELS_WECOM_AIBOT_ENCODING_AES_KEY"`
+	WebhookPath        string              `json:"webhook_path" mapstructure:"webhook_path"         env:"CLOTHO_CHANNELS_WECOM_AIBOT_WEBHOOK_PATH"`
+	AllowFrom          FlexibleStringSlice `json:"allow_from" mapstructure:"allow_from"           env:"CLOTHO_CHANNELS_WECOM_AIBOT_ALLOW_FROM"`
+	ReplyTimeout       int                 `json:"reply_timeout" mapstructure:"reply_timeout"        env:"CLOTHO_CHANNELS_WECOM_AIBOT_REPLY_TIMEOUT"`
+	MaxSteps           int                 `json:"max_steps" mapstructure:"max_steps"            env:"CLOTHO_CHANNELS_WECOM_AIBOT_MAX_STEPS"`       // Maximum streaming steps
+	WelcomeMessage     string              `json:"welcome_message" mapstructure:"welcome_message"      env:"CLOTHO_CHANNELS_WECOM_AIBOT_WELCOME_MESSAGE"` // Sent on enter_chat event; empty = no welcome
+	ReasoningChannelID string              `json:"reasoning_channel_id" mapstructure:"reasoning_channel_id" env:"CLOTHO_CHANNELS_WECOM_AIBOT_REASONING_CHANNEL_ID"`
 }
 
 type HeartbeatConfig struct {
-	Enabled  bool `json:"enabled"  env:"CLOTHO_HEARTBEAT_ENABLED"`
-	Interval int  `json:"interval" env:"CLOTHO_HEARTBEAT_INTERVAL"` // minutes, min 5
+	Enabled  bool `json:"enabled" mapstructure:"enabled"  env:"CLOTHO_HEARTBEAT_ENABLED"`
+	Interval int  `json:"interval" mapstructure:"interval" env:"CLOTHO_HEARTBEAT_INTERVAL"` // minutes, min 5
 }
 
 type DevicesConfig struct {
-	Enabled    bool `json:"enabled"     env:"CLOTHO_DEVICES_ENABLED"`
-	MonitorUSB bool `json:"monitor_usb" env:"CLOTHO_DEVICES_MONITOR_USB"`
+	Enabled    bool `json:"enabled" mapstructure:"enabled"     env:"CLOTHO_DEVICES_ENABLED"`
+	MonitorUSB bool `json:"monitor_usb" mapstructure:"monitor_usb" env:"CLOTHO_DEVICES_MONITOR_USB"`
 }
 
 type ProvidersConfig struct {
-	Anthropic     ProviderConfig       `json:"anthropic"`
-	OpenAI        OpenAIProviderConfig `json:"openai"`
-	LiteLLM       ProviderConfig       `json:"litellm"`
-	OpenRouter    ProviderConfig       `json:"openrouter"`
-	Groq          ProviderConfig       `json:"groq"`
-	Zhipu         ProviderConfig       `json:"zhipu"`
-	VLLM          ProviderConfig       `json:"vllm"`
-	Gemini        ProviderConfig       `json:"gemini"`
-	Nvidia        ProviderConfig       `json:"nvidia"`
-	Ollama        ProviderConfig       `json:"ollama"`
-	Moonshot      ProviderConfig       `json:"moonshot"`
-	ShengSuanYun  ProviderConfig       `json:"shengsuanyun"`
-	DeepSeek      ProviderConfig       `json:"deepseek"`
-	Cerebras      ProviderConfig       `json:"cerebras"`
-	VolcEngine    ProviderConfig       `json:"volcengine"`
-	GitHubCopilot ProviderConfig       `json:"github_copilot"`
-	Antigravity   ProviderConfig       `json:"antigravity"`
-	Qwen          ProviderConfig       `json:"qwen"`
-	Mistral       ProviderConfig       `json:"mistral"`
-	Avian         ProviderConfig       `json:"avian"`
+	Anthropic     ProviderConfig       `json:"anthropic" mapstructure:"anthropic"`
+	OpenAI        OpenAIProviderConfig `json:"openai" mapstructure:"openai"`
+	LiteLLM       ProviderConfig       `json:"litellm" mapstructure:"litellm"`
+	OpenRouter    ProviderConfig       `json:"openrouter" mapstructure:"openrouter"`
+	Groq          ProviderConfig       `json:"groq" mapstructure:"groq"`
+	Zhipu         ProviderConfig       `json:"zhipu" mapstructure:"zhipu"`
+	VLLM          ProviderConfig       `json:"vllm" mapstructure:"vllm"`
+	Gemini        ProviderConfig       `json:"gemini" mapstructure:"gemini"`
+	Nvidia        ProviderConfig       `json:"nvidia" mapstructure:"nvidia"`
+	Ollama        ProviderConfig       `json:"ollama" mapstructure:"ollama"`
+	Moonshot      ProviderConfig       `json:"moonshot" mapstructure:"moonshot"`
+	ShengSuanYun  ProviderConfig       `json:"shengsuanyun" mapstructure:"shengsuanyun"`
+	DeepSeek      ProviderConfig       `json:"deepseek" mapstructure:"deepseek"`
+	Cerebras      ProviderConfig       `json:"cerebras" mapstructure:"cerebras"`
+	VolcEngine    ProviderConfig       `json:"volcengine" mapstructure:"volcengine"`
+	GitHubCopilot ProviderConfig       `json:"github_copilot" mapstructure:"github_copilot"`
+	Antigravity   ProviderConfig       `json:"antigravity" mapstructure:"antigravity"`
+	Qwen          ProviderConfig       `json:"qwen" mapstructure:"qwen"`
+	Mistral       ProviderConfig       `json:"mistral" mapstructure:"mistral"`
+	Avian         ProviderConfig       `json:"avian" mapstructure:"avian"`
 }
 
 // IsEmpty checks if all provider configs are empty (no API keys or API bases set)
@@ -476,17 +480,17 @@ func (p ProvidersConfig) MarshalJSON() ([]byte, error) {
 }
 
 type ProviderConfig struct {
-	APIKey         string `json:"api_key"                   env:"CLOTHO_PROVIDERS_{{.Name}}_API_KEY"`
-	APIBase        string `json:"api_base"                  env:"CLOTHO_PROVIDERS_{{.Name}}_API_BASE"`
-	Proxy          string `json:"proxy,omitempty"           env:"CLOTHO_PROVIDERS_{{.Name}}_PROXY"`
-	RequestTimeout int    `json:"request_timeout,omitempty" env:"CLOTHO_PROVIDERS_{{.Name}}_REQUEST_TIMEOUT"`
-	AuthMethod     string `json:"auth_method,omitempty"     env:"CLOTHO_PROVIDERS_{{.Name}}_AUTH_METHOD"`
-	ConnectMode    string `json:"connect_mode,omitempty"    env:"CLOTHO_PROVIDERS_{{.Name}}_CONNECT_MODE"` // only for Github Copilot, `stdio` or `grpc`
+	APIKey         string `json:"api_key" mapstructure:"api_key"                   env:"CLOTHO_PROVIDERS_{{.Name}}_API_KEY"`
+	APIBase        string `json:"api_base" mapstructure:"api_base"                  env:"CLOTHO_PROVIDERS_{{.Name}}_API_BASE"`
+	Proxy          string `json:"proxy,omitempty" mapstructure:"proxy,omitempty"           env:"CLOTHO_PROVIDERS_{{.Name}}_PROXY"`
+	RequestTimeout int    `json:"request_timeout,omitempty" mapstructure:"request_timeout,omitempty" env:"CLOTHO_PROVIDERS_{{.Name}}_REQUEST_TIMEOUT"`
+	AuthMethod     string `json:"auth_method,omitempty" mapstructure:"auth_method,omitempty"     env:"CLOTHO_PROVIDERS_{{.Name}}_AUTH_METHOD"`
+	ConnectMode    string `json:"connect_mode,omitempty" mapstructure:"connect_mode,omitempty"    env:"CLOTHO_PROVIDERS_{{.Name}}_CONNECT_MODE"` // only for Github Copilot, `stdio` or `grpc`
 }
 
 type OpenAIProviderConfig struct {
 	ProviderConfig
-	WebSearch bool `json:"web_search" env:"CLOTHO_PROVIDERS_OPENAI_WEB_SEARCH"`
+	WebSearch bool `json:"web_search" mapstructure:"web_search" env:"CLOTHO_PROVIDERS_OPENAI_WEB_SEARCH"`
 }
 
 // ModelConfig represents a model-centric provider configuration.
@@ -496,24 +500,24 @@ type OpenAIProviderConfig struct {
 // Default protocol is "openai" if no prefix is specified.
 type ModelConfig struct {
 	// Required fields
-	ModelName string `json:"model_name"` // User-facing alias for the model
-	Model     string `json:"model"`      // Protocol/model-identifier (e.g., "openai/gpt-4o", "anthropic/claude-sonnet-4.6")
+	ModelName string `json:"model_name" mapstructure:"model_name"` // User-facing alias for the model
+	Model     string `json:"model" mapstructure:"model"`      // Protocol/model-identifier (e.g., "openai/gpt-4o", "anthropic/claude-sonnet-4.6")
 
 	// HTTP-based providers
-	APIBase string `json:"api_base,omitempty"` // API endpoint URL
-	APIKey  string `json:"api_key"`            // API authentication key
-	Proxy   string `json:"proxy,omitempty"`    // HTTP proxy URL
+	APIBase string `json:"api_base" mapstructure:"api_base"` // API endpoint URL
+	APIKey  string `json:"api_key" mapstructure:"api_key"` // API authentication key
+	Proxy   string `json:"proxy" mapstructure:"proxy"`  // HTTP proxy URL
 
 	// Special providers (CLI-based, OAuth, etc.)
-	AuthMethod  string `json:"auth_method,omitempty"`  // Authentication method: oauth, token
-	ConnectMode string `json:"connect_mode,omitempty"` // Connection mode: stdio, grpc
-	Workspace   string `json:"workspace,omitempty"`    // Workspace path for CLI-based providers
+	AuthMethod  string `json:"auth_method" mapstructure:"auth_method"`  // Authentication method: oauth, token
+	ConnectMode string `json:"connect_mode" mapstructure:"connect_mode"` // Connection mode: stdio, grpc
+	Workspace   string `json:"workspace" mapstructure:"workspace"`    // Workspace path for CLI-based providers
 
 	// Optional optimizations
-	RPM            int    `json:"rpm,omitempty"`              // Requests per minute limit
-	MaxTokensField string `json:"max_tokens_field,omitempty"` // Field name for max tokens (e.g., "max_completion_tokens")
-	RequestTimeout int    `json:"request_timeout,omitempty"`
-	ThinkingLevel  string `json:"thinking_level,omitempty"` // Extended thinking: off|low|medium|high|xhigh|adaptive
+	RPM            int    `json:"rpm" mapstructure:"rpm"`              // Requests per minute limit
+	MaxTokensField string `json:"max_tokens_field" mapstructure:"max_tokens_field"` // Field name for max tokens (e.g., "max_completion_tokens")
+	RequestTimeout int    `json:"request_timeout" mapstructure:"request_timeout"`
+	ThinkingLevel  string `json:"thinking_level" mapstructure:"thinking_level"` // Extended thinking: off|low|medium|high|xhigh|adaptive
 }
 
 // Validate checks if the ModelConfig has all required fields.
@@ -528,52 +532,52 @@ func (c *ModelConfig) Validate() error {
 }
 
 type GatewayConfig struct {
-	Host string `json:"host" env:"CLOTHO_GATEWAY_HOST"`
-	Port int    `json:"port" env:"CLOTHO_GATEWAY_PORT"`
+	Host string `json:"host" mapstructure:"host" env:"CLOTHO_GATEWAY_HOST"`
+	Port int    `json:"port" mapstructure:"port" env:"CLOTHO_GATEWAY_PORT"`
 }
 
 type ToolConfig struct {
-	Enabled bool `json:"enabled" env:"ENABLED"`
+	Enabled bool `json:"enabled" mapstructure:"enabled" env:"ENABLED"`
 }
 
 type BraveConfig struct {
-	Enabled    bool   `json:"enabled"     env:"CLOTHO_TOOLS_WEB_BRAVE_ENABLED"`
-	APIKey     string `json:"api_key"     env:"CLOTHO_TOOLS_WEB_BRAVE_API_KEY"`
-	MaxResults int    `json:"max_results" env:"CLOTHO_TOOLS_WEB_BRAVE_MAX_RESULTS"`
+	Enabled    bool   `json:"enabled" mapstructure:"enabled"     env:"CLOTHO_TOOLS_WEB_BRAVE_ENABLED"`
+	APIKey     string `json:"api_key" mapstructure:"api_key"     env:"CLOTHO_TOOLS_WEB_BRAVE_API_KEY"`
+	MaxResults int    `json:"max_results" mapstructure:"max_results" env:"CLOTHO_TOOLS_WEB_BRAVE_MAX_RESULTS"`
 }
 
 type TavilyConfig struct {
-	Enabled    bool   `json:"enabled"     env:"CLOTHO_TOOLS_WEB_TAVILY_ENABLED"`
-	APIKey     string `json:"api_key"     env:"CLOTHO_TOOLS_WEB_TAVILY_API_KEY"`
-	BaseURL    string `json:"base_url"    env:"CLOTHO_TOOLS_WEB_TAVILY_BASE_URL"`
-	MaxResults int    `json:"max_results" env:"CLOTHO_TOOLS_WEB_TAVILY_MAX_RESULTS"`
+	Enabled    bool   `json:"enabled" mapstructure:"enabled"     env:"CLOTHO_TOOLS_WEB_TAVILY_ENABLED"`
+	APIKey     string `json:"api_key" mapstructure:"api_key"     env:"CLOTHO_TOOLS_WEB_TAVILY_API_KEY"`
+	BaseURL    string `json:"base_url" mapstructure:"base_url"    env:"CLOTHO_TOOLS_WEB_TAVILY_BASE_URL"`
+	MaxResults int    `json:"max_results" mapstructure:"max_results" env:"CLOTHO_TOOLS_WEB_TAVILY_MAX_RESULTS"`
 }
 
 type DuckDuckGoConfig struct {
-	Enabled    bool `json:"enabled"     env:"CLOTHO_TOOLS_WEB_DUCKDUCKGO_ENABLED"`
-	MaxResults int  `json:"max_results" env:"CLOTHO_TOOLS_WEB_DUCKDUCKGO_MAX_RESULTS"`
+	Enabled    bool `json:"enabled" mapstructure:"enabled"     env:"CLOTHO_TOOLS_WEB_DUCKDUCKGO_ENABLED"`
+	MaxResults int  `json:"max_results" mapstructure:"max_results" env:"CLOTHO_TOOLS_WEB_DUCKDUCKGO_MAX_RESULTS"`
 }
 
 type PerplexityConfig struct {
-	Enabled    bool   `json:"enabled"     env:"CLOTHO_TOOLS_WEB_PERPLEXITY_ENABLED"`
-	APIKey     string `json:"api_key"     env:"CLOTHO_TOOLS_WEB_PERPLEXITY_API_KEY"`
-	MaxResults int    `json:"max_results" env:"CLOTHO_TOOLS_WEB_PERPLEXITY_MAX_RESULTS"`
+	Enabled    bool   `json:"enabled" mapstructure:"enabled"     env:"CLOTHO_TOOLS_WEB_PERPLEXITY_ENABLED"`
+	APIKey     string `json:"api_key" mapstructure:"api_key"     env:"CLOTHO_TOOLS_WEB_PERPLEXITY_API_KEY"`
+	MaxResults int    `json:"max_results" mapstructure:"max_results" env:"CLOTHO_TOOLS_WEB_PERPLEXITY_MAX_RESULTS"`
 }
 
 type SearXNGConfig struct {
-	Enabled    bool   `json:"enabled"     env:"CLOTHO_TOOLS_WEB_SEARXNG_ENABLED"`
-	BaseURL    string `json:"base_url"    env:"CLOTHO_TOOLS_WEB_SEARXNG_BASE_URL"`
-	MaxResults int    `json:"max_results" env:"CLOTHO_TOOLS_WEB_SEARXNG_MAX_RESULTS"`
+	Enabled    bool   `json:"enabled" mapstructure:"enabled"     env:"CLOTHO_TOOLS_WEB_SEARXNG_ENABLED"`
+	BaseURL    string `json:"base_url" mapstructure:"base_url"    env:"CLOTHO_TOOLS_WEB_SEARXNG_BASE_URL"`
+	MaxResults int    `json:"max_results" mapstructure:"max_results" env:"CLOTHO_TOOLS_WEB_SEARXNG_MAX_RESULTS"`
 }
 
 type GLMSearchConfig struct {
-	Enabled bool   `json:"enabled"  env:"CLOTHO_TOOLS_WEB_GLM_ENABLED"`
-	APIKey  string `json:"api_key"  env:"CLOTHO_TOOLS_WEB_GLM_API_KEY"`
-	BaseURL string `json:"base_url" env:"CLOTHO_TOOLS_WEB_GLM_BASE_URL"`
+	Enabled bool   `json:"enabled" mapstructure:"enabled"  env:"CLOTHO_TOOLS_WEB_GLM_ENABLED"`
+	APIKey  string `json:"api_key" mapstructure:"api_key"  env:"CLOTHO_TOOLS_WEB_GLM_API_KEY"`
+	BaseURL string `json:"base_url" mapstructure:"base_url" env:"CLOTHO_TOOLS_WEB_GLM_BASE_URL"`
 	// SearchEngine specifies the search backend: "search_std" (default),
 	// "search_pro", "search_pro_sogou", or "search_pro_quark".
-	SearchEngine string `json:"search_engine" env:"CLOTHO_TOOLS_WEB_GLM_SEARCH_ENGINE"`
-	MaxResults   int    `json:"max_results"   env:"CLOTHO_TOOLS_WEB_GLM_MAX_RESULTS"`
+	SearchEngine string `json:"search_engine" mapstructure:"search_engine" env:"CLOTHO_TOOLS_WEB_GLM_SEARCH_ENGINE"`
+	MaxResults   int    `json:"max_results" mapstructure:"max_results"   env:"CLOTHO_TOOLS_WEB_GLM_MAX_RESULTS"`
 }
 
 type WebToolsConfig struct {
@@ -586,8 +590,8 @@ type WebToolsConfig struct {
 	GLMSearch  GLMSearchConfig  `                                json:"glm_search"`
 	// Proxy is an optional proxy URL for web tools (http/https/socks5/socks5h).
 	// For authenticated proxies, prefer HTTP_PROXY/HTTPS_PROXY env vars instead of embedding credentials in config.
-	Proxy           string `json:"proxy,omitempty"             env:"CLOTHO_TOOLS_WEB_PROXY"`
-	FetchLimitBytes int64  `json:"fetch_limit_bytes,omitempty" env:"CLOTHO_TOOLS_WEB_FETCH_LIMIT_BYTES"`
+	Proxy           string `json:"proxy,omitempty" mapstructure:"proxy,omitempty"             env:"CLOTHO_TOOLS_WEB_PROXY"`
+	FetchLimitBytes int64  `json:"fetch_limit_bytes,omitempty" mapstructure:"fetch_limit_bytes,omitempty" env:"CLOTHO_TOOLS_WEB_FETCH_LIMIT_BYTES"`
 }
 
 type CronToolsConfig struct {
@@ -616,75 +620,75 @@ type MediaCleanupConfig struct {
 }
 
 type ToolsConfig struct {
-	AllowReadPaths  []string           `json:"allow_read_paths"  env:"CLOTHO_TOOLS_ALLOW_READ_PATHS"`
-	AllowWritePaths []string           `json:"allow_write_paths" env:"CLOTHO_TOOLS_ALLOW_WRITE_PATHS"`
-	Web             WebToolsConfig     `json:"web"`
-	Cron            CronToolsConfig    `json:"cron"`
-	Exec            ExecConfig         `json:"exec"`
-	Skills          SkillsToolsConfig  `json:"skills"`
-	MediaCleanup    MediaCleanupConfig `json:"media_cleanup"`
-	MCP             MCPConfig          `json:"mcp"`
-	AppendFile      ToolConfig         `json:"append_file"                                              envPrefix:"CLOTHO_TOOLS_APPEND_FILE_"`
-	EditFile        ToolConfig         `json:"edit_file"                                                envPrefix:"CLOTHO_TOOLS_EDIT_FILE_"`
-	FindSkills      ToolConfig         `json:"find_skills"                                              envPrefix:"CLOTHO_TOOLS_FIND_SKILLS_"`
-	I2C             ToolConfig         `json:"i2c"                                                      envPrefix:"CLOTHO_TOOLS_I2C_"`
-	InstallSkill    ToolConfig         `json:"install_skill"                                            envPrefix:"CLOTHO_TOOLS_INSTALL_SKILL_"`
-	ListDir         ToolConfig         `json:"list_dir"                                                 envPrefix:"CLOTHO_TOOLS_LIST_DIR_"`
-	Message         ToolConfig         `json:"message"                                                  envPrefix:"CLOTHO_TOOLS_MESSAGE_"`
-	ReadFile        ToolConfig         `json:"read_file"                                                envPrefix:"CLOTHO_TOOLS_READ_FILE_"`
-	Spawn           ToolConfig         `json:"spawn"                                                    envPrefix:"CLOTHO_TOOLS_SPAWN_"`
-	SPI             ToolConfig         `json:"spi"                                                      envPrefix:"CLOTHO_TOOLS_SPI_"`
-	Subagent        ToolConfig         `json:"subagent"                                                 envPrefix:"CLOTHO_TOOLS_SUBAGENT_"`
-	WebFetch        ToolConfig         `json:"web_fetch"                                                envPrefix:"CLOTHO_TOOLS_WEB_FETCH_"`
-	WriteFile       ToolConfig         `json:"write_file"                                               envPrefix:"CLOTHO_TOOLS_WRITE_FILE_"`
+	AllowReadPaths  []string           `json:"allow_read_paths" mapstructure:"allow_read_paths"  env:"CLOTHO_TOOLS_ALLOW_READ_PATHS"`
+	AllowWritePaths []string           `json:"allow_write_paths" mapstructure:"allow_write_paths" env:"CLOTHO_TOOLS_ALLOW_WRITE_PATHS"`
+	Web             WebToolsConfig     `json:"web" mapstructure:"web"`
+	Cron            CronToolsConfig    `json:"cron" mapstructure:"cron"`
+	Exec            ExecConfig         `json:"exec" mapstructure:"exec"`
+	Skills          SkillsToolsConfig  `json:"skills" mapstructure:"skills"`
+	MediaCleanup    MediaCleanupConfig `json:"media_cleanup" mapstructure:"media_cleanup"`
+	MCP             MCPConfig          `json:"mcp" mapstructure:"mcp"`
+	AppendFile      ToolConfig         `json:"append_file" mapstructure:"append_file"                                              envPrefix:"CLOTHO_TOOLS_APPEND_FILE_"`
+	EditFile        ToolConfig         `json:"edit_file" mapstructure:"edit_file"                                                envPrefix:"CLOTHO_TOOLS_EDIT_FILE_"`
+	FindSkills      ToolConfig         `json:"find_skills" mapstructure:"find_skills"                                              envPrefix:"CLOTHO_TOOLS_FIND_SKILLS_"`
+	I2C             ToolConfig         `json:"i2c" mapstructure:"i2c"                                                      envPrefix:"CLOTHO_TOOLS_I2C_"`
+	InstallSkill    ToolConfig         `json:"install_skill" mapstructure:"install_skill"                                            envPrefix:"CLOTHO_TOOLS_INSTALL_SKILL_"`
+	ListDir         ToolConfig         `json:"list_dir" mapstructure:"list_dir"                                                 envPrefix:"CLOTHO_TOOLS_LIST_DIR_"`
+	Message         ToolConfig         `json:"message" mapstructure:"message"                                                  envPrefix:"CLOTHO_TOOLS_MESSAGE_"`
+	ReadFile        ToolConfig         `json:"read_file" mapstructure:"read_file"                                                envPrefix:"CLOTHO_TOOLS_READ_FILE_"`
+	Spawn           ToolConfig         `json:"spawn" mapstructure:"spawn"                                                    envPrefix:"CLOTHO_TOOLS_SPAWN_"`
+	SPI             ToolConfig         `json:"spi" mapstructure:"spi"                                                      envPrefix:"CLOTHO_TOOLS_SPI_"`
+	Subagent        ToolConfig         `json:"subagent" mapstructure:"subagent"                                                 envPrefix:"CLOTHO_TOOLS_SUBAGENT_"`
+	WebFetch        ToolConfig         `json:"web_fetch" mapstructure:"web_fetch"                                                envPrefix:"CLOTHO_TOOLS_WEB_FETCH_"`
+	WriteFile       ToolConfig         `json:"write_file" mapstructure:"write_file"                                               envPrefix:"CLOTHO_TOOLS_WRITE_FILE_"`
 }
 
 type SearchCacheConfig struct {
-	MaxSize    int `json:"max_size"    env:"CLOTHO_SKILLS_SEARCH_CACHE_MAX_SIZE"`
-	TTLSeconds int `json:"ttl_seconds" env:"CLOTHO_SKILLS_SEARCH_CACHE_TTL_SECONDS"`
+	MaxSize    int `json:"max_size" mapstructure:"max_size"    env:"CLOTHO_SKILLS_SEARCH_CACHE_MAX_SIZE"`
+	TTLSeconds int `json:"ttl_seconds" mapstructure:"ttl_seconds" env:"CLOTHO_SKILLS_SEARCH_CACHE_TTL_SECONDS"`
 }
 
 type SkillsRegistriesConfig struct {
-	ClawHub ClawHubRegistryConfig `json:"clawhub"`
+	ClawHub ClawHubRegistryConfig `json:"clawhub" mapstructure:"clawhub"`
 }
 
 type ClawHubRegistryConfig struct {
-	Enabled         bool   `json:"enabled"           env:"CLOTHO_SKILLS_REGISTRIES_CLAWHUB_ENABLED"`
-	BaseURL         string `json:"base_url"          env:"CLOTHO_SKILLS_REGISTRIES_CLAWHUB_BASE_URL"`
-	AuthToken       string `json:"auth_token"        env:"CLOTHO_SKILLS_REGISTRIES_CLAWHUB_AUTH_TOKEN"`
-	SearchPath      string `json:"search_path"       env:"CLOTHO_SKILLS_REGISTRIES_CLAWHUB_SEARCH_PATH"`
-	SkillsPath      string `json:"skills_path"       env:"CLOTHO_SKILLS_REGISTRIES_CLAWHUB_SKILLS_PATH"`
-	DownloadPath    string `json:"download_path"     env:"CLOTHO_SKILLS_REGISTRIES_CLAWHUB_DOWNLOAD_PATH"`
-	Timeout         int    `json:"timeout"           env:"CLOTHO_SKILLS_REGISTRIES_CLAWHUB_TIMEOUT"`
-	MaxZipSize      int    `json:"max_zip_size"      env:"CLOTHO_SKILLS_REGISTRIES_CLAWHUB_MAX_ZIP_SIZE"`
-	MaxResponseSize int    `json:"max_response_size" env:"CLOTHO_SKILLS_REGISTRIES_CLAWHUB_MAX_RESPONSE_SIZE"`
+	Enabled         bool   `json:"enabled" mapstructure:"enabled"           env:"CLOTHO_SKILLS_REGISTRIES_CLAWHUB_ENABLED"`
+	BaseURL         string `json:"base_url" mapstructure:"base_url"          env:"CLOTHO_SKILLS_REGISTRIES_CLAWHUB_BASE_URL"`
+	AuthToken       string `json:"auth_token" mapstructure:"auth_token"        env:"CLOTHO_SKILLS_REGISTRIES_CLAWHUB_AUTH_TOKEN"`
+	SearchPath      string `json:"search_path" mapstructure:"search_path"       env:"CLOTHO_SKILLS_REGISTRIES_CLAWHUB_SEARCH_PATH"`
+	SkillsPath      string `json:"skills_path" mapstructure:"skills_path"       env:"CLOTHO_SKILLS_REGISTRIES_CLAWHUB_SKILLS_PATH"`
+	DownloadPath    string `json:"download_path" mapstructure:"download_path"     env:"CLOTHO_SKILLS_REGISTRIES_CLAWHUB_DOWNLOAD_PATH"`
+	Timeout         int    `json:"timeout" mapstructure:"timeout"           env:"CLOTHO_SKILLS_REGISTRIES_CLAWHUB_TIMEOUT"`
+	MaxZipSize      int    `json:"max_zip_size" mapstructure:"max_zip_size"      env:"CLOTHO_SKILLS_REGISTRIES_CLAWHUB_MAX_ZIP_SIZE"`
+	MaxResponseSize int    `json:"max_response_size" mapstructure:"max_response_size" env:"CLOTHO_SKILLS_REGISTRIES_CLAWHUB_MAX_RESPONSE_SIZE"`
 }
 
 // MCPServerConfig defines configuration for a single MCP server
 type MCPServerConfig struct {
 	// Enabled indicates whether this MCP server is active
-	Enabled bool `json:"enabled"`
+	Enabled bool `json:"enabled" mapstructure:"enabled"`
 	// Command is the executable to run (e.g., "npx", "python", "/path/to/server")
-	Command string `json:"command"`
+	Command string `json:"command" mapstructure:"command"`
 	// Args are the arguments to pass to the command
-	Args []string `json:"args,omitempty"`
+	Args []string `json:"args,omitempty" mapstructure:"args,omitempty"`
 	// Env are environment variables to set for the server process (stdio only)
-	Env map[string]string `json:"env,omitempty"`
+	Env map[string]string `json:"env,omitempty" mapstructure:"env,omitempty"`
 	// EnvFile is the path to a file containing environment variables (stdio only)
-	EnvFile string `json:"env_file,omitempty"`
+	EnvFile string `json:"env_file,omitempty" mapstructure:"env_file,omitempty"`
 	// Type is "stdio", "sse", or "http" (default: stdio if command is set, sse if url is set)
-	Type string `json:"type,omitempty"`
+	Type string `json:"type,omitempty" mapstructure:"type,omitempty"`
 	// URL is used for SSE/HTTP transport
-	URL string `json:"url,omitempty"`
+	URL string `json:"url,omitempty" mapstructure:"url,omitempty"`
 	// Headers are HTTP headers to send with requests (sse/http only)
-	Headers map[string]string `json:"headers,omitempty"`
+	Headers map[string]string `json:"headers,omitempty" mapstructure:"headers,omitempty"`
 }
 
 // MCPConfig defines configuration for all MCP servers
 type MCPConfig struct {
 	ToolConfig `envPrefix:"CLOTHO_TOOLS_MCP_"`
 	// Servers is a map of server name to server configuration
-	Servers map[string]MCPServerConfig `json:"servers,omitempty"`
+	Servers map[string]MCPServerConfig `json:"servers,omitempty" mapstructure:"servers,omitempty"`
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -698,27 +702,83 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 
-	// Pre-scan the JSON to check how many model_list entries the user provided.
-	// Go's JSON decoder reuses existing slice backing-array elements rather than
-	// zero-initializing them, so fields absent from the user's JSON (e.g. api_base)
-	// would silently inherit values from the DefaultConfig template at the same
-	// index position. We only reset cfg.ModelList when the user actually provides
-	// entries; when count is 0 we keep DefaultConfig's built-in list as fallback.
-	var tmp Config
-	if err := json.Unmarshal(data, &tmp); err != nil {
-		return nil, err
-	}
-	if len(tmp.ModelList) > 0 {
-		cfg.ModelList = nil
+	// Detect file format by extension
+	ext := strings.ToLower(filepath.Ext(path))
+
+	if ext == ".toml" {
+		// TOML format - use mapstructure tags
+		var tomlMap any
+		if err := toml.Unmarshal(data, &tomlMap); err != nil {
+			return nil, err
+		}
+
+		// Pre-scan to check model_list count
+		var tmp Config
+		decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+			TagName:          "mapstructure",
+			Result:           &tmp,
+			WeaklyTypedInput: true,
+		})
+		if err != nil {
+			return nil, err
+		}
+		decoder.Decode(tomlMap)
+		if len(tmp.ModelList) > 0 {
+			cfg.ModelList = nil
+		}
+
+		// Full decode
+		decoder, err = mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+			TagName:          "mapstructure",
+			Result:           cfg,
+			WeaklyTypedInput: true,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if err := decoder.Decode(tomlMap); err != nil {
+			return nil, err
+		}
+	} else {
+		// JSON format - convert to map then use mapstructure decoder
+		var jsonMap any
+		if err := json.Unmarshal(data, &jsonMap); err != nil {
+			return nil, err
+		}
+
+		// Pre-scan to check model_list count
+		var tmp Config
+		decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+			TagName:          "mapstructure",
+			Result:           &tmp,
+			WeaklyTypedInput: true,
+		})
+		if err != nil {
+			return nil, err
+		}
+		decoder.Decode(jsonMap)
+		if len(tmp.ModelList) > 0 {
+			cfg.ModelList = nil
+		}
+
+		// Full decode
+		decoder, err = mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+			TagName:          "mapstructure",
+			Result:           cfg,
+			WeaklyTypedInput: true,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if err := decoder.Decode(jsonMap); err != nil {
+			return nil, err
+		}
 	}
 
-	if err := json.Unmarshal(data, cfg); err != nil {
-		return nil, err
-	}
-
-	if err := env.Parse(cfg); err != nil {
-		return nil, err
-	}
+	// TODO: re-enable env parsing after fixing
+	// if err := env.Parse(cfg); err != nil {
+	// 	return nil, err
+	// }
 
 	// Migrate legacy channel config fields to new unified structures
 	cfg.migrateChannelConfigs()

@@ -1,0 +1,119 @@
+# ===============================================
+# Clotho 配置文件示例 (TOML 格式)
+# ===============================================
+# 复制此文件到 ~/.clotho/config.toml 并填写你的配置
+
+# ------------------------------------------------------------
+# 飞书 (Feishu) 渠道配置
+# ------------------------------------------------------------
+[channels.feishu]
+enabled = true
+app_id = "cli_xxxxx"          # 飞书应用 ID
+app_secret = "xxxxx"          # 飞书应用密钥
+encrypt_key = ""              # 加密密钥 (可选)
+verification_token = ""        # 验证 Token (可选)
+allow_from = []               # 允许的用户 ID 列表
+
+# ------------------------------------------------------------
+# Telegram 渠道配置
+# ------------------------------------------------------------
+# [channels.telegram]
+# enabled = true
+# token = "123456:ABC..."     # Bot Token
+# allow_from = ["USER_ID"]    # 允许的用户 ID
+
+# ------------------------------------------------------------
+# Discord 渠道配置
+# ------------------------------------------------------------
+# [channels.discord]
+# enabled = true
+# token = "YOUR_DISCORD_BOT_TOKEN"
+# allow_from = []
+# group_trigger.mention_only = false
+
+# ------------------------------------------------------------
+# 模型配置 (至少需要配置一个)
+# ------------------------------------------------------------
+# 使用 Anthropic (Claude)
+[[model_list]]
+model_name = "claude"
+model = "anthropic/claude-sonnet-4-20250514"
+api_key = "sk-ant-xxxxx"
+api_base = "https://api.anthropic.com/v1"
+
+# 使用 OpenAI
+# [[model_list]]
+# model_name = "gpt4"
+# model = "openai/gpt-4"
+# api_key = "sk-xxxxx"
+# api_base = "https://api.openai.com/v1"
+
+# 使用 OpenRouter (聚合多个模型)
+# [[model_list]]
+# model_name = "openrouter"
+# model = "openai/gpt-4"
+# api_key = "sk-or-v1-xxxxx"
+# api_base = "https://openrouter.ai/api/v1"
+
+# 使用 Ollama (本地模型)
+# [[model_list]]
+# model_name = "ollama"
+# model = "ollama/llama3"
+# api_base = "http://localhost:11434/v1"
+
+# ------------------------------------------------------------
+# Agent 默认配置
+# ------------------------------------------------------------
+[agents.defaults]
+model_name = "claude"         # 默认使用的模型名称
+workspace = "~/.clotho/workspace"
+restrict_to_workspace = true   # 限制 Agent 只在 workspace 内操作
+max_tokens = 8192
+temperature = 0.7
+max_tool_iterations = 20
+
+# ------------------------------------------------------------
+# Gateway 配置
+# ------------------------------------------------------------
+[gateway]
+host = "127.0.0.1"
+port = 18790
+
+# ------------------------------------------------------------
+# 工具配置
+# ------------------------------------------------------------
+[tools.web]
+enabled = true
+# 搜索配置 (至少启用一个)
+duckduckgo.enabled = true
+duckduckgo.max_results = 5
+# brave.enabled = true
+# brave.api_key = "YOUR_BRAVE_API_KEY"
+
+[tools.exec]
+enabled = true
+
+[tools.cron]
+enabled = true
+
+[tools.skills]
+enabled = true
+
+# ------------------------------------------------------------
+# 心跳配置
+# ------------------------------------------------------------
+[heartbeat]
+enabled = true
+interval = 30  # 分钟
+
+# ------------------------------------------------------------
+# MCP 服务器配置 (可选)
+# ------------------------------------------------------------
+# [tools.mcp]
+# enabled = true
+# [tools.mcp.servers.context7]
+# enabled = true
+# type = "http"
+# url = "https://mcp.context7.com/mcp"
+# [tools.mcp.servers.context7.headers]
+# CONTEXT7_API_KEY = "ctx7sk-xx"

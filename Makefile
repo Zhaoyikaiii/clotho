@@ -11,7 +11,7 @@ GIT_COMMIT=$(shell git rev-parse --short=8 HEAD 2>/dev/null || echo "dev")
 BUILD_TIME=$(shell date +%FT%T%z)
 GO_VERSION=$(shell go version | awk '{print $$3}')
 INTERNAL=github.com/Zhaoyikaiii/clotho/cmd/clotho/internal
-LDFLAGS=-ldflags "-X $(INTERNAL).version=$(VERSION) -X $(INTERNAL).gitCommit=$(GIT_COMMIT) -X $(INTERNAL).buildTime=$(BUILD_TIME) -X $(INTERNAL).goVersion=$(GO_VERSION) -s -w"
+LDFLAGS=-ldflags '-X $(INTERNAL).version=$(VERSION) -X $(INTERNAL).gitCommit=$(GIT_COMMIT) -X $(INTERNAL).buildTime=$(BUILD_TIME) -X $(INTERNAL).goVersion=$(GO_VERSION) -s -w'
 
 # Installation
 INSTALL_PREFIX?=$(HOME)/.local
@@ -55,6 +55,13 @@ install:
 	@mkdir -p $(INSTALL_BIN_DIR)
 	@cp $(BUILD_DIR)/$(BINARY_NAME) $(INSTALL_BIN_DIR)/$(BINARY_NAME)
 	@echo "Installed to $(INSTALL_BIN_DIR)/$(BINARY_NAME)"
+
+## build: Build binary without installing
+build:
+	@echo "Building $(BINARY_NAME)..."
+	@mkdir -p $(BUILD_DIR)
+	@go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./$(CMD_DIR)
+	@echo "Built: $(BUILD_DIR)/$(BINARY_NAME)"
 
 ## clean: Remove build artifacts
 clean:
